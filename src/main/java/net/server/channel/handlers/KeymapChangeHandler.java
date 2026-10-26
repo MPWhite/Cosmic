@@ -21,6 +21,7 @@
  */
 package net.server.channel.handlers;
 
+import client.Character;
 import client.Client;
 import client.Skill;
 import client.SkillFactory;
@@ -44,20 +45,22 @@ public final class KeymapChangeHandler extends AbstractPacketHandler {
 
                     if (type == 1) {
                         Skill skill = SkillFactory.getSkill(action);
-                        boolean isBanndedSkill;
-                        if (skill != null) {
-                            isBanndedSkill = GameConstants.bannedBindSkills(skill.getId());
-                            if (isBanndedSkill || (!c.getPlayer().isGM() && GameConstants.isGMSkills(skill.getId())) || (!GameConstants.isInJobTree(skill.getId(), c.getPlayer().getJob().getId()) && !c.getPlayer().isGM())) { //for those skills are are "technically" in the beginner tab, like bamboo rain in Dojo or skills you find in PYPQ
-                                //AutobanFactory.PACKET_EDIT.alert(c.getPlayer(), c.getPlayer().getName() + " tried to packet edit keymapping.");
-                                //FilePrinter.printError(FilePrinter.EXPLOITS + c.getPlayer().getName() + ".txt", c.getPlayer().getName() + " tried to use skill " + skill.getId());
-                                //c.disconnect(true, false);
-                                //return;
+                        if (skill == null || GameConstants.bannedBindSkills(skill.getId())) {
+                            continue;
+                        }
 
-                                continue;   // fk that
+                        Character player = c.getPlayer();
+                        if (!player.isGM()) {
+                            if (GameConstants.isGMSkills(skill.getId())) {
+                                continue;
                             }
-                                                        /* if (c.getPlayer().getSkillLevel(skill) < 1) {    HOW WOULD A SKILL EVEN BE AVAILABLE TO KEYBINDING
-                                                                continue;                                   IF THERE IS NOT EVEN A SINGLE POINT USED INTO IT??
-                                                        } */
+                            boolean inJobTree = GameConstants.isInJobTree(skill.getId(), player.getJob().getId());
+                            long expiration = player.getSkillExpiration(skill);
+                            boolean inheritedSkill = player.getReborns() > 0 && player.getSkillLevel(skill) > 0
+                                    && (expiration < 0 || expiration > System.currentTimeMillis());
+                            if (!inJobTree && !inheritedSkill) {
+                                continue;
+                            }
                         }
                     }
 

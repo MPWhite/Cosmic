@@ -34,6 +34,7 @@ public class Skill {
     private int animationTime;
     private final int job;
     private boolean action;
+    private boolean keyBindable;
 
     public Skill(int id) {
         this.id = id;
@@ -92,6 +93,14 @@ public class Skill {
 
     public boolean getAction() {
         return action;
+    }
+
+    public boolean isKeyBindable() {
+        return keyBindable;
+    }
+
+    public void setKeyBindable(boolean keyBindable) {
+        this.keyBindable = keyBindable;
     }
 
     public void addLevelEffect(StatEffect effect) {

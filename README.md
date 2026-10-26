@@ -92,6 +92,22 @@ change the save location. The browser client's Mac setup includes a patch that
 smooths remote-player movement; rerun its setup when installing these changes
 on another machine.
 
+### Rebirths on this fork
+
+At level 200, use `@rebirth` (or `@reborn`) in a town and confirm to restart at
+level 1 as a Beginner in Henesys. You must be alive and outside parties, events,
+trades, shops, and minigames. Unequip non-cash equipment first; it remains in your
+inventory and follows its usual level and job requirements. Rebirth preserves base stats, HP/MP, unspent AP/SP, inventory, mesos,
+learned skills, and key bindings; temporary buffs are cleared. Your rebirth count
+is saved with your character. Job advancement quests reset so you can choose a new
+job on the next run; other quests keep their progress.
+
+Use the same command's skill menu to bind a learned active skill from a previous
+job to a letter key. The menu asks before replacing the key's existing binding.
+Normal weapon requirements still apply, and job-specific passives and special
+job mechanics may still require their original job. Passive, event-only, expired,
+and GM skills cannot be bound through this menu.
+
 ### macOS quick start (Apple Silicon or Intel)
 
 Install [Homebrew](https://brew.sh), then run from this directory:

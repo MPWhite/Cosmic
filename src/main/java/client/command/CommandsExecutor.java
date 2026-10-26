@@ -39,6 +39,7 @@ import client.command.commands.gm0.OnlineCommand;
 import client.command.commands.gm0.RanksCommand;
 import client.command.commands.gm0.RatesCommand;
 import client.command.commands.gm0.ReadPointsCommand;
+import client.command.commands.gm0.RebirthCommand;
 import client.command.commands.gm0.ReportBugCommand;
 import client.command.commands.gm0.ShowRatesCommand;
 import client.command.commands.gm0.StaffCommand;
@@ -341,6 +342,7 @@ public class CommandsExecutor {
         levelCommandsCursor = new Pair<>(new ArrayList<String>(), new ArrayList<String>());
 
         addCommand(new String[]{"help", "commands"}, HelpCommand.class);
+        addCommand(new String[]{"rebirth", "reborn"}, RebirthCommand.class);
         addCommand("residents", client.command.commands.gm0.ResidentsCommand.class);
         addCommand("companion", client.command.commands.gm0.CompanionCommand.class);
         addCommand("talk", client.command.commands.gm0.TalkCommand.class);

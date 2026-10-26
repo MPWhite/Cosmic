@@ -196,12 +196,17 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public class Character extends AbstractCharacterObject {
     private static final Logger log = LoggerFactory.getLogger(Character.class);
     private static final String LEVEL_200 = "[Congrats] %s has reached Level %d! Congratulate %s on such an amazing achievement!";
+    private static final int[] REBIRTH_ADVANCEMENT_QUESTS = {
+            100000, 100001, 100002, 100003, 100004, 100005,
+            100006, 100007, 100008, 100009, 100010, 100011, 2191, 2192
+    };
     private static final String[] BLOCKED_NAMES = {"admin", "owner", "moderator", "intern", "donor", "administrator", "FREDRICK", "help", "helper", "alert", "notice", "maplestory", "fuck", "wizet", "fucking", "negro", "fuk", "fuc", "penis", "pussy", "asshole", "gay",
             "nigger", "homo", "suck", "cum", "shit", "shitty", "condom", "security", "official", "rape", "nigga", "sex", "tit", "boner", "orgy", "clit", "asshole", "fatass", "bitch", "support", "gamemaster", "cock", "gaay", "gm",
             "operate", "master", "sysop", "party", "GameMaster", "community", "message", "event", "test", "meso", "Scania", "yata", "AsiaSoft", "henesys"};
 
     private int world;
     private int accountid, id, level;
+    private int reborns;
     private int rank, rankMove, jobRank, jobRankMove;
     private int gender, hair, face;
     private int fame, quest_fame;
@@ -5239,6 +5244,146 @@ public class Character extends AbstractCharacterObject {
         return level;
     }
 
+    public int getReborns() {
+        return reborns;
+    }
+
+    /** Returns null after a durable rebirth, or the reason no rebirth was performed. */
+    public synchronized String rebirth() {
+        if (!isLoggedinWorld() || isChangingMaps()) {
+            return "Finish entering the world before rebirthing.";
+        }
+        if (level < 200) {
+            return "You must reach level 200 before rebirthing.";
+        }
+        if (!isAlive()) {
+            return "Revive before rebirthing.";
+        }
+        if (getMap() == null || !getMap().isTown()) {
+            return "Return to a town before rebirthing.";
+        }
+        if (getParty() != null || getEventInstance() != null || getMap().getEventInstance() != null) {
+            return "Leave your party and event before rebirthing.";
+        }
+        if (getTrade() != null || getShop() != null || getPlayerShop() != null
+                || getHiredMerchant() != null || getMiniGame() != null
+                || (getCashShop() != null && getCashShop().isOpened())) {
+            return "Close your trade, shop, or minigame before rebirthing.";
+        }
+        for (Item item : getInventory(InventoryType.EQUIPPED).list()) {
+            // Cash appearance slots start at -101; ordinary gear remains level/job gated.
+            if (item.getPosition() >= -100) {
+                return "Unequip your non-cash equipment before rebirthing. You keep it in your inventory.";
+            }
+        }
+        if (reborns == Integer.MAX_VALUE) {
+            return "You have reached the maximum rebirth count.";
+        }
+
+        MapleMap destination = getClient().getChannelServer().getMapFactory().getMap(MapId.HENESYS);
+        if (destination == null || destination.getPortal(0) == null) {
+            return "Henesys is unavailable. Please try rebirthing again later.";
+        }
+
+        int previousLevel = level;
+        int previousExp = exp.get();
+        Job previousJob = job;
+        int previousReborns = reborns;
+        boolean previouslyAllowedExp = allowExpGain;
+        Map<Short, QuestStatus> previousAdvancementQuests = new LinkedHashMap<>();
+
+        // The party search index must be detached while the old job is still set.
+        updatePartySearchAvailability(false);
+        level = 1;
+        exp.set(0);
+        job = Job.BEGINNER;
+        reborns++;
+        allowExpGain = true;
+        synchronized (quests) {
+            for (int questId : REBIRTH_ADVANCEMENT_QUESTS) {
+                QuestStatus previous = quests.remove((short) questId);
+                if (previous != null) {
+                    previousAdvancementQuests.put((short) questId, previous);
+                }
+            }
+        }
+
+        if (!saveCharToDB(true)) {
+            level = previousLevel;
+            exp.set(previousExp);
+            job = previousJob;
+            reborns = previousReborns;
+            allowExpGain = previouslyAllowedExp;
+            synchronized (quests) {
+                quests.putAll(previousAdvancementQuests);
+            }
+            updatePartySearchAvailability(true);
+            return "Your rebirth could not be saved. Nothing was reset; please try again later.";
+        }
+
+        try {
+            finishRebirth(destination);
+        } catch (RuntimeException e) {
+            // The transaction is committed: never restore the old state after this point.
+            log.error("Rebirth saved but refresh failed for chr {}", name, e);
+            return "Your rebirth was saved. Please reconnect to finish refreshing your character.";
+        }
+        return null;
+    }
+
+    /** Applies client and world changes only after the rebirth transaction commits. */
+    protected void finishRebirth(MapleMap destination) {
+        cancelAllBuffs(false);
+        purgeDebuffs();
+        if (dragon != null) {
+            getMap().broadcastMessage(PacketCreator.removeDragon(dragon.getObjectId()));
+            dragon = null;
+        }
+
+        resetPlayerRates();
+        if (YamlConfig.config.server.USE_ADD_RATES_BY_LEVEL) {
+            setPlayerRates();
+        }
+        setWorldRates();
+        updateCouponRates();
+        updatePartySearchAvailability(true);
+
+        effLock.lock();
+        statWlock.lock();
+        try {
+            recalcLocalStats();
+            List<Pair<Stat, Integer>> updates = new ArrayList<>();
+            updates.add(new Pair<>(Stat.LEVEL, level));
+            updates.add(new Pair<>(Stat.JOB, job.getId()));
+            updates.add(new Pair<>(Stat.EXP, exp.get()));
+            updates.add(new Pair<>(Stat.HP, hp));
+            updates.add(new Pair<>(Stat.MP, mp));
+            updates.add(new Pair<>(Stat.MAXHP, clientmaxhp));
+            updates.add(new Pair<>(Stat.MAXMP, clientmaxmp));
+            updates.add(new Pair<>(Stat.STR, str));
+            updates.add(new Pair<>(Stat.DEX, dex));
+            updates.add(new Pair<>(Stat.INT, int_));
+            updates.add(new Pair<>(Stat.LUK, luk));
+            updates.add(new Pair<>(Stat.AVAILABLEAP, remainingAp));
+            updates.add(new Pair<>(Stat.AVAILABLESP, remainingSp[GameConstants.getSkillBook(job.getId())]));
+            sendPacket(PacketCreator.updatePlayerStats(updates, true, this));
+        } finally {
+            statWlock.unlock();
+            effLock.unlock();
+        }
+
+        for (int questId : REBIRTH_ADVANCEMENT_QUESTS) {
+            QuestStatus reset = new QuestStatus(Quest.getInstance(questId), QuestStatus.Status.NOT_STARTED);
+            sendPacket(PacketCreator.updateQuest(this, reset, false));
+        }
+        setMPC(new PartyCharacter(this));
+        guildUpdate();
+        changeMap(destination, destination.getPortal(0));
+        sendKeymap();
+        sendMacros();
+        yellowMessage("Rebirth " + reborns + " complete! You are a level 1 Beginner. Your stats and learned skills are retained. Use @rebirth to bind skills from previous jobs.");
+    }
+
     public int getFh() {
         Point pos = this.getPosition();
         pos.y -= 6;
@@ -6865,6 +7010,7 @@ public class Character extends AbstractCharacterObject {
 
                     ret.name = rs.getString("name");
                     ret.level = rs.getInt("level");
+                    ret.reborns = rs.getInt("reborns");
                     ret.fame = rs.getInt("fame");
                     ret.quest_fame = rs.getInt("fquest");
                     ret.str = rs.getInt("str");
@@ -7912,7 +8058,7 @@ public class Character extends AbstractCharacterObject {
     }
 
     public synchronized void resetStats() {
-        if (!YamlConfig.config.server.USE_AUTOASSIGN_STARTERS_AP) {
+        if (reborns > 0 || !YamlConfig.config.server.USE_AUTOASSIGN_STARTERS_AP) {
             return;
         }
 
@@ -8241,22 +8387,21 @@ public class Character extends AbstractCharacterObject {
     }
 
     //ItemFactory saveItems and monsterbook.saveCards are the most time consuming here.
-    public synchronized void saveCharToDB(boolean notAutosave) {
+    public synchronized boolean saveCharToDB(boolean notAutosave) {
         if (!loggedIn) {
-            return;
+            return false;
         }
 
         Calendar c = Calendar.getInstance();
         log.debug("Attempting to {} chr {}", notAutosave ? "save" : "autosave", name);
 
-        Server.getInstance().updateCharacterEntry(this);
-
+        boolean saved = false;
         try (Connection con = DatabaseConnection.getConnection()) {
             con.setAutoCommit(false);
             con.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
 
             try {
-                try (PreparedStatement ps = con.prepareStatement("UPDATE characters SET level = ?, fame = ?, str = ?, dex = ?, luk = ?, `int` = ?, exp = ?, gachaexp = ?, hp = ?, mp = ?, maxhp = ?, maxmp = ?, sp = ?, ap = ?, gm = ?, skincolor = ?, gender = ?, job = ?, hair = ?, face = ?, map = ?, meso = ?, hpMpUsed = ?, spawnpoint = ?, party = ?, buddyCapacity = ?, messengerid = ?, messengerposition = ?, mountlevel = ?, mountexp = ?, mounttiredness= ?, equipslots = ?, useslots = ?, setupslots = ?, etcslots = ?,  monsterbookcover = ?, vanquisherStage = ?, dojoPoints = ?, lastDojoStage = ?, finishedDojoTutorial = ?, vanquisherKills = ?, matchcardwins = ?, matchcardlosses = ?, matchcardties = ?, omokwins = ?, omoklosses = ?, omokties = ?, dataString = ?, fquest = ?, jailexpire = ?, partnerId = ?, marriageItemId = ?, lastExpGainTime = ?, ariantPoints = ?, partySearch = ? WHERE id = ?", Statement.RETURN_GENERATED_KEYS)) {
+                try (PreparedStatement ps = con.prepareStatement("UPDATE characters SET level = ?, fame = ?, str = ?, dex = ?, luk = ?, `int` = ?, exp = ?, gachaexp = ?, hp = ?, mp = ?, maxhp = ?, maxmp = ?, sp = ?, ap = ?, gm = ?, skincolor = ?, gender = ?, job = ?, hair = ?, face = ?, map = ?, meso = ?, hpMpUsed = ?, spawnpoint = ?, party = ?, buddyCapacity = ?, messengerid = ?, messengerposition = ?, mountlevel = ?, mountexp = ?, mounttiredness= ?, equipslots = ?, useslots = ?, setupslots = ?, etcslots = ?,  monsterbookcover = ?, vanquisherStage = ?, dojoPoints = ?, lastDojoStage = ?, finishedDojoTutorial = ?, vanquisherKills = ?, matchcardwins = ?, matchcardlosses = ?, matchcardties = ?, omokwins = ?, omoklosses = ?, omokties = ?, dataString = ?, fquest = ?, jailexpire = ?, partnerId = ?, marriageItemId = ?, lastExpGainTime = ?, ariantPoints = ?, partySearch = ?, reborns = ? WHERE id = ?", Statement.RETURN_GENERATED_KEYS)) {
                     ps.setInt(1, level);    // thanks CanIGetaPR for noticing an unnecessary "level" limitation when persisting DB data
                     ps.setInt(2, fame);
 
@@ -8370,7 +8515,8 @@ public class Character extends AbstractCharacterObject {
                     ps.setTimestamp(53, new Timestamp(lastExpGainTime));
                     ps.setInt(54, ariantPoints);
                     ps.setBoolean(55, canRecvPartySearchInvite);
-                    ps.setInt(56, id);
+                    ps.setInt(56, reborns);
+                    ps.setInt(57, id);
 
                     int updateRows = ps.executeUpdate();
                     if (updateRows < 1) {
@@ -8632,6 +8778,7 @@ public class Character extends AbstractCharacterObject {
                 }
 
                 con.commit();
+                saved = true;
             } catch (Exception e) {
                 con.rollback();
                 throw e;
@@ -8642,6 +8789,14 @@ public class Character extends AbstractCharacterObject {
         } catch (Exception e) {
             log.error("Error saving chr {}, level: {}, job: {}", name, level, job.getId(), e);
         }
+        if (saved) {
+            try {
+                Server.getInstance().updateCharacterEntry(this);
+            } catch (RuntimeException e) {
+                log.error("Character saved but login view refresh failed for chr {}", name, e);
+            }
+        }
+        return saved;
     }
 
     public void sendPolice(int greason, String reason, int duration) {

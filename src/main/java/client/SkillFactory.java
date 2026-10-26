@@ -116,6 +116,9 @@ public class SkillFactory {
 
     private static Skill loadFromData(int id, Data data) {
         Skill ret = new Skill(id);
+        ret.setKeyBindable(data.getChildByPath("action") != null
+                || data.getChildByPath("prepare/action") != null
+                || id == Gunslinger.INVISIBLE_SHOT || id == Corsair.HYPNOTIZE);
         boolean isBuff = false;
         int skillType = DataTool.getInt("skillType", data, -1);
         String elem = DataTool.getString("elemAttr", data, null);

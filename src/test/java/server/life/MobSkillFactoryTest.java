@@ -1,13 +1,7 @@
 package server.life;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.mockito.MockitoAnnotations;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
@@ -16,40 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MobSkillFactoryTest {
-
-    @TempDir
-    private Path wzPath;
-
-    @BeforeEach
-    void setWzPath() {
-        MockitoAnnotations.openMocks(this);
-        writeTestFileToTempDir();
-        System.setProperty("wz-path", "%s/wz".formatted(wzPath.toString()));
-    }
-
-    private void writeTestFileToTempDir() {
-        try {
-            String testFileContents = readTestFileContents();
-            writeTempDirFile(testFileContents);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private String readTestFileContents() throws IOException {
-        return new String(getClass()
-                .getClassLoader()
-                .getResourceAsStream("MobSkill-test.img.xml")
-                .readAllBytes()
-        );
-    }
-
-    private void writeTempDirFile(String fileContents) throws IOException {
-        Path tempDirDirectory = wzPath.resolve("wz/Skill.wz");
-        Files.createDirectories(tempDirDirectory);
-        Path tempDirFile = Files.createFile(tempDirDirectory.resolve("MobSkill.img.xml"));
-        Files.writeString(tempDirFile, fileContents);
-    }
+    // Use the checked-in server data. WZFiles and the factory cache their providers,
+    // so changing the global wz-path property here makes other tests order-dependent.
 
     @Test
     void shouldLoadExistingMobSkill() {
@@ -67,7 +29,13 @@ class MobSkillFactoryTest {
 
     @Test
     void shouldThrowExceptionOnNonExisting() {
-        assertThrows(IllegalArgumentException.class, () -> MobSkillFactory.getMobSkillOrThrow(MobSkillType.DEFENSE_UP, 1));
+        int missingLevel = Integer.MAX_VALUE;
+        assertTrue(MobSkillFactory.getMobSkill(MobSkillType.DEFENSE_UP, missingLevel).isEmpty());
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> MobSkillFactory.getMobSkillOrThrow(MobSkillType.DEFENSE_UP, missingLevel));
+
+        assertEquals("No MobSkill exists for type DEFENSE_UP, level " + missingLevel, error.getMessage());
     }
 
 }
