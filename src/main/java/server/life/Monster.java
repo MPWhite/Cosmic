@@ -111,6 +111,8 @@ public class Monster extends AbstractLoadedLife {
     private int parentMobOid = 0;
     private int spawnEffect = 0;
     private final HashMap<Integer, AtomicLong> takenDamage = new HashMap<>();
+    private int residentCombatOwner;
+    private long residentCombatClaimUntil;
     private ScheduledFuture<?> monsterItemDrop = null;
     private Runnable removeAfterAction = null;
     private boolean availablePuppetUpdate = true;
@@ -503,6 +505,60 @@ public class Monster extends AbstractLoadedLife {
 
     public boolean isAttackedBy(Character chr) {
         return takenDamage.containsKey(chr.getId());
+    }
+
+    /** NPC hunters yield to human attacks; assistants only help their leader's existing fight. */
+    private boolean acceptsResidentDamage(Set<Integer> assistedPlayers) {
+        return assistedPlayers.isEmpty() ? takenDamage.isEmpty()
+                : !takenDamage.isEmpty() && assistedPlayers.containsAll(takenDamage.keySet());
+    }
+
+    public boolean claimResidentTarget(int residentId, long now, Set<Integer> assistedPlayers) {
+        lockMonster();
+        try {
+            if (!isAlive() || !acceptsResidentDamage(assistedPlayers)
+                    || residentCombatOwner != residentId && residentCombatClaimUntil > now) {
+                return false;
+            }
+            residentCombatOwner = residentId;
+            residentCombatClaimUntil = now + 3_000;
+            return true;
+        } finally {
+            unlockMonster();
+        }
+    }
+
+    public void releaseResidentTarget(int residentId) {
+        lockMonster();
+        try {
+            if (residentCombatOwner == residentId) {
+                residentCombatOwner = 0;
+                residentCombatClaimUntil = 0;
+            }
+        } finally {
+            unlockMonster();
+        }
+    }
+
+    /**
+     * Unattributed NPC damage. It never enters the player contribution ledger or aggro system.
+     * Player experience remains proportional to the HP players themselves removed. Recheck
+     * claims under the same lock as real attacks, including tags made during the attack windup.
+     */
+    public record ResidentHit(int damage, boolean killed) { }
+
+    public ResidentHit damageByResident(int residentId, long now, int damage, Set<Integer> assistedPlayers) {
+        lockMonster();
+        try {
+            if (damage <= 0 || residentCombatOwner != residentId || residentCombatClaimUntil < now
+                    || !acceptsResidentDamage(assistedPlayers)) {
+                return new ResidentHit(0, false);
+            }
+            Integer applied = applyAndGetHpDamage(damage, false);
+            return new ResidentHit(applied == null ? 0 : applied, applied != null && !isAlive());
+        } finally {
+            unlockMonster();
+        }
     }
 
     private static boolean isWhiteExpGain(Character chr, Map<Integer, Float> personalRatio, double sdevRatio) {

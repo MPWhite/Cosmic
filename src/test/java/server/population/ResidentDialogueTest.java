@@ -24,7 +24,7 @@ class ResidentDialogueTest {
         var dialogue = new ResidentDialogue(firstStore);
         var mia = ResidentProfiles.all().getFirst();
 
-        assertTrue(dialogue.greeting(mia, 42, "MapleGuest").contains("I'm Mia"));
+        assertTrue(dialogue.greeting(mia, 42, "MapleGuest").length() < 80);
         dialogue.reply(mia, 42, "MapleGuest", "I like mushrooms");
         firstStore.flush();
 
@@ -35,9 +35,10 @@ class ResidentDialogueTest {
                 () -> assertTrue(recognition.contains("MapleGuest")),
                 () -> assertTrue(recognition.contains("mushrooms")),
                 () -> assertEquals(1, reloaded.get(42, mia.id(), "MapleGuest").visits()),
-                () -> assertEquals(2, reloaded.get(42, mia.id(), "MapleGuest").conversations()),
-                () -> assertTrue(afterRestart.greeting(mia, 42, "MapleGuest").contains("again"))
+                () -> assertEquals(2, reloaded.get(42, mia.id(), "MapleGuest").conversations())
         );
+        afterRestart.greeting(mia, 42, "MapleGuest");
+        assertEquals(2, reloaded.get(42, mia.id(), "MapleGuest").visits());
     }
 
     @Test
@@ -51,8 +52,8 @@ class ResidentDialogueTest {
         String stranger = dialogue.reply(mia, 43, "Second", "remember me?");
         String otherResident = dialogue.reply(pip, 42, "First", "remember me?");
 
-        assertTrue(stranger.contains("just meeting"));
-        assertTrue(otherResident.contains("just meeting"));
+        assertTrue(stranger.contains("don't think we've met"));
+        assertTrue(otherResident.contains("don't think we've met"));
         assertFalse(stranger.contains("mushrooms"));
         assertFalse(otherResident.contains("mushrooms"));
     }
@@ -66,7 +67,8 @@ class ResidentDialogueTest {
         dialogue.reply(pip, 8, "Ranger", "I am training today");
         dialogue.reply(pip, 8, "Ranger", "hello again");
         assertTrue(dialogue.reply(pip, 8, "Ranger", "remember me").contains("your training"));
-        assertTrue(dialogue.greeting(pip, 8, "Ranger").contains("your training"));
+        dialogue.greeting(pip, 8, "Ranger");
+        assertEquals("your training", store.get(8, pip.id(), "Ranger").lastTopic());
     }
 
     @Test
@@ -78,7 +80,7 @@ class ResidentDialogueTest {
     }
 
     @Test
-    void stopIntentWinsOverFollowAndPartyDoesNotPromiseUnsupportedCombat() {
+    void stopIntentWinsOverFollowAndPartyDoesNotPromiseAnActualPartySlot() {
         assertEquals(ResidentDialogue.Intent.FOLLOW, ResidentDialogue.intent("Please follow me"));
         assertEquals(ResidentDialogue.Intent.STOP_FOLLOWING, ResidentDialogue.intent("don't follow me"));
         assertEquals(ResidentDialogue.Intent.STOP_FOLLOWING, ResidentDialogue.intent("stop following"));
@@ -87,11 +89,68 @@ class ResidentDialogueTest {
 
         var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
         assertTrue(dialogue.reply(ResidentProfiles.all().getFirst(), 1, "Guest", "join my party")
-                .contains("can't fight"));
+                .contains("party"));
         assertFalse(dialogue.reply(ResidentProfiles.all().get(3), 1, "Guest", "join my party")
                 .contains("follow me"));
         assertTrue(dialogue.reply(ResidentProfiles.all().get(3), 1, "Guest", "follow me")
                 .contains("usual route"));
+    }
+
+    @Test
+    void intentSeparatesGameRequestsAndDoesNotTreatStopInAQuestionAsACommand() {
+        assertEquals(ResidentDialogue.Intent.PARTY, ResidentDialogue.intent("join my party?"));
+        assertEquals(ResidentDialogue.Intent.HUNT, ResidentDialogue.intent("want to hunt mushrooms?"));
+        assertEquals(ResidentDialogue.Intent.TRADE, ResidentDialogue.intent("wtb potions"));
+        assertEquals(ResidentDialogue.Intent.HELP, ResidentDialogue.intent("help with this quest"));
+        assertEquals(ResidentDialogue.Intent.FAREWELL, ResidentDialogue.intent("gtg"));
+        assertEquals(ResidentDialogue.Intent.STOP_FOLLOWING, ResidentDialogue.intent("MapleMia, stay"));
+        assertEquals(ResidentDialogue.Intent.HELP, ResidentDialogue.intent("how do I stop dying?"));
+    }
+
+    @Test
+    void repeatedShortRepliesVaryWithoutRecitingThePlayersName() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var mia = ResidentProfiles.all().getFirst();
+        var replies = new HashSet<String>();
+        String previous = "";
+        for (int turn = 0; turn < 8; turn++) {
+            String reply = dialogue.reply(mia, 77, "TestPlayer", "thanks");
+            assertNotEquals(previous, reply);
+            assertTrue(reply.length() < 30);
+            assertFalse(reply.contains("TestPlayer"));
+            replies.add(reply);
+            previous = reply;
+        }
+        assertTrue(replies.size() >= 3);
+    }
+
+    @Test
+    void activityContextChangesWhatTheResidentSaysWithoutInventingTradesOrQuests() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var mia = ResidentProfiles.all().getFirst();
+        var hunting = new ResidentDialogue.Context(ResidentDialogue.Activity.TRAINING, "Henesys Hunting Ground", true);
+        var exploring = new ResidentDialogue.Context(ResidentDialogue.Activity.EXPLORING, "Henesys Hunting Ground", false);
+        assertTrue(dialogue.reply(mia, 90, "Guest", "where are we?", exploring).contains("Henesys Hunting Ground"));
+        String combat = dialogue.reply(mia, 90, "Guest", "want to hunt?", hunting);
+        assertFalse(combat.contains("say 'follow me'"));
+        String trade = dialogue.reply(mia, 90, "Guest", "trade me mesos", hunting);
+        assertTrue(trade.contains("can't trade") || trade.contains("nothing for sale") || trade.contains("no trades"));
+        String quest = dialogue.reply(mia, 90, "Guest", "do my quest", hunting);
+        assertTrue(quest.contains("handle the quest NPCs"));
+    }
+
+    @Test
+    void ambientAndLevelReactionsStayShortAndBotIdentityIsHonestWhenAsked() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var mia = ResidentProfiles.all().getFirst();
+        for (var activity : ResidentDialogue.Activity.values()) {
+            var context = new ResidentDialogue.Context(activity, "Henesys", false);
+            for (int sequence = 0; sequence < 8; sequence++) {
+                assertTrue(dialogue.ambient(mia, context, sequence).length() < 100);
+            }
+        }
+        assertTrue(dialogue.levelUp(mia, "Guest", 1).length() < 40);
+        assertTrue(dialogue.reply(mia, 1, "Guest", "are you a real player?").contains("server-run bot"));
     }
 
     @Test

@@ -103,6 +103,39 @@ class ResidentPacketsTest {
         assertEquals(0, packet.available());
     }
 
+    @Test
+    void everyCombatStyleMatchesTheForeignAttackDecoderIncludingMagicLinesAndRangedTail() {
+        for (ResidentCombat.Style style : ResidentCombat.Style.values()) {
+            int[] lines = style == ResidentCombat.Style.MAGIC ? new int[]{17, 18} : new int[]{35};
+            InPacket packet = new ByteBufInPacket(Unpooled.wrappedBuffer(ResidentPackets.attack(
+                    1_500_000_001, style, true, 777, lines).getBytes()));
+            assertEquals(style.opcode().getValue(), packet.readShort());
+            assertEquals(1_500_000_001, packet.readInt());
+            assertEquals(0x10 | lines.length, packet.readUnsignedByte());
+            assertEquals(0x5B, packet.readUnsignedByte());
+            int skillLevel = packet.readUnsignedByte();
+            assertEquals(style.skillId() == 0 ? 0 : 1, skillLevel);
+            if (skillLevel > 0) {
+                assertEquals(2001005, packet.readInt());
+            }
+            assertEquals(0, packet.readByte());
+            assertEquals(1, packet.readByte());
+            assertEquals(0, packet.readByte(), "movement stance must never override the weapon attack action");
+            assertEquals(6, packet.readByte());
+            assertEquals(0x0A, packet.readByte());
+            assertEquals(style.projectileId(), packet.readInt());
+            assertEquals(777, packet.readInt());
+            assertEquals(0, packet.readByte());
+            for (int damage : lines) {
+                assertEquals(damage, packet.readInt());
+            }
+            if (style.opcode() == SendOpcode.RANGED_ATTACK) {
+                assertEquals(0, packet.readInt());
+            }
+            assertEquals(0, packet.available());
+        }
+    }
+
     private static TownResident resident(ResidentProfiles.Profile profile) {
         MapleMap map = mock(MapleMap.class);
         FootholdTree tree = new FootholdTree(new Point(-1000, -1000), new Point(1000, 1000));

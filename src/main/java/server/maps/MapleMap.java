@@ -163,7 +163,7 @@ public class MapleMap {
     private Pair<Integer, String> timeMob = null;
     private short mobInterval = 5000;
     private boolean allowSummons = true; // All maps should have this true at the beginning
-    private Character mapOwner = null;
+    private volatile Character mapOwner = null;
     private long mapOwnerLastActivityTime = Long.MAX_VALUE;
 
     // events
@@ -2593,11 +2593,9 @@ public class MapleMap {
         return null;
     }
 
-    /*
     public Collection<Portal> getPortals() {
-        return Collections.unmodifiableCollection(portals.values());
+        return List.copyOf(portals.values());
     }
-    */
 
     public void addPlayerPuppet(Character player) {
         for (Monster mm : this.getAllMonsters()) {
@@ -2866,6 +2864,7 @@ public class MapleMap {
             case HIRED_MERCHANT:
             case PLAYER_NPC:
             case TOWN_RESIDENT:
+            case TOWN_RESIDENT_LOOT:
             case DRAGON:
             case MIST:
             case KITE:
@@ -4094,6 +4093,12 @@ public class MapleMap {
         }
 
         return false;
+    }
+
+    /** Read-only ownership check: residents must not claim or extend a player's map lease. */
+    public boolean allowsResidentCombat(Character leader) {
+        Character owner = mapOwner;
+        return owner == null || leader != null && (owner == leader || owner.isPartyMember(leader));
     }
 
     public void checkMapOwnerActivity() {

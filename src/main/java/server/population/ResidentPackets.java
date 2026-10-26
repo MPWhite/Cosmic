@@ -79,4 +79,41 @@ public final class ResidentPackets {
     public static Packet chat(int id, String text) {
         return PacketCreator.getChatText(id, text, false, 0);
     }
+
+    public static Packet emote(int id, int expression) {
+        OutPacket packet = OutPacket.create(SendOpcode.FACIAL_EXPRESSION);
+        packet.writeInt(id);
+        packet.writeInt(expression);
+        return packet;
+    }
+
+    /** Standard remote attacks use the actor's network ID, never its map registry ID. */
+    public static Packet attack(int id, ResidentCombat.Style style, boolean left, int monsterOid, int[] damage) {
+        if (damage.length < 1 || damage.length > 15) {
+            throw new IllegalArgumentException("An attack needs 1..15 damage lines");
+        }
+        OutPacket packet = OutPacket.create(style.opcode());
+        packet.writeInt(id);
+        packet.writeByte(0x10 | damage.length); // one target
+        packet.writeByte(0x5B);
+        packet.writeByte(style.skillId() == 0 ? 0 : 1);
+        if (style.skillId() != 0) {
+            packet.writeInt(style.skillId());
+        }
+        packet.writeByte(0);
+        packet.writeByte(left ? 1 : 0);
+        packet.writeByte(0); // let the weapon/skill choose its attack animation, not a movement stance
+        packet.writeByte(6);
+        packet.writeByte(0x0A);
+        packet.writeInt(style.projectileId());
+        packet.writeInt(monsterOid);
+        packet.writeByte(0);
+        for (int line : damage) {
+            packet.writeInt(Math.max(0, line));
+        }
+        if (style.opcode() == SendOpcode.RANGED_ATTACK) {
+            packet.writeInt(0);
+        }
+        return packet;
+    }
 }

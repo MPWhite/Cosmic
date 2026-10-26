@@ -64,7 +64,7 @@ public final class TownResident extends AbstractMapObject {
         this.profile = Objects.requireNonNull(profile);
         this.map = Objects.requireNonNull(map);
         random = new Random(id);
-        walkingSpeed = 55 + random.nextInt(31);
+        walkingSpeed = 115 + random.nextInt(31);
         Point ground = new Point(Objects.requireNonNull(spawn));
         Foothold foothold = map.getFootholds().findBelow(new Point(ground.x, ground.y - 8));
         if (foothold == null || foothold.isWall()) {
@@ -251,9 +251,33 @@ public final class TownResident extends AbstractMapObject {
         }
         if (!isTraversing() && footholdId != 0) {
             stop(100);
-            pauseUntil = System.currentTimeMillis() + 4000;
+            pauseUntil = Math.max(pauseUntil, System.currentTimeMillis()
+                    + Math.min(2600, 600 + message.length() * 22L + random.nextInt(201)));
         }
         map.broadcastMessage(ResidentPackets.chat(id, message.length() > 240 ? message.substring(0, 240) : message));
+    }
+
+    /** Begin a grounded action without interrupting a jump or a ladder traversal. */
+    public synchronized boolean holdAction(Point face, long now, int durationMillis) {
+        if (isTraversing() || footholdId == 0 || now < pauseUntil) {
+            return false;
+        }
+        route.clear();
+        activeLeg = null;
+        legElapsed = 0;
+        plannedTarget = null;
+        nextPlan = 0;
+        stance = 4 | (face.x < getPosition().x ? 1 : 0);
+        walking = false;
+        pauseUntil = now + Math.max(1, durationMillis);
+        broadcastMovement(new Point(), 100);
+        return true;
+    }
+
+    public synchronized void emote(int expression) {
+        if (expression >= 0 && expression <= 17) {
+            map.broadcastMessage(ResidentPackets.emote(id, expression));
+        }
     }
 
     /** Called by the shared population scheduler; no task or thread per resident. */

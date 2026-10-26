@@ -61,6 +61,11 @@ final class CompanionTravel {
         return following;
     }
 
+    boolean canAssist() {
+        return following && !returned && crossings.isEmpty() && leader.getMap() == resident.getMap()
+                && leader.getPosition().distanceSq(resident.getPosition()) < 500 * 500;
+    }
+
     void follow() {
         following = true;
         mismatchSince = 0;

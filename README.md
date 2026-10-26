@@ -52,10 +52,11 @@ The project follows the [semantic versioning](https://semver.org/) scheme using 
 
 ### Living Henesys
 
-Henesys now has 20 persistent town identities, with varied appearances, gentle
-walking routines, occasional conversation, and three companions: **MapleMia**,
-**PipArcher**, and **Juniper**. They appear automatically when you visit Henesys;
-the companions usually gather along the central market street.
+Henesys has 20 stable town identities and eight additional hunters in The Hill
+East of Henesys and Pig Park. Town residents walk to places, browse near NPCs,
+take breaks, and occasionally talk to each other. Tobin and AshTrail make trips
+through the east portal to hunt and return. **MapleMia**, **PipArcher**, and
+**Juniper** can accompany you; they usually start near the central market street.
 
 - Type `@residents` to see nearby names and instructions.
 - Double-click a nearby resident to say hello.
@@ -68,16 +69,28 @@ the companions usually gather along the central market street.
 - Say `stay` for a break, then `follow me` to resume. Use `@companion` to check
   their location, or `@companion dismiss` to send them home. Logging out, dying,
   changing channels, or using an unsupported warp returns them to Henesys.
+- Attack a normal monster while a companion follows to get help. Companions
+  assist only monsters already hit by you or your nearby party, and yield to
+  other players. They use visible melee attacks, arrows, or Magic Claw according
+  to their weapon, with hit reactions and short recovery breaks.
+- Independent hunters choose unclaimed normal monsters, pause between hunting
+  sessions, and collect private drops from their own kills. Those drops cannot
+  enter player inventories. Their damage does not create player EXP or quest
+  credit; assisted players retain their actual contribution and drop ownership.
 - If a route stays blocked, the companion announces a catch-up and reappears on
   safe ground nearby. This is a timed fallback, not the normal movement path.
 
-Residents use authored, contextual dialogue and need no AI API key.
-Residents cannot fight, trade, or join parties yet. Scripted, closed, and event
-portals are excluded. Companions do not occupy player slots or control monsters.
-Ambient residents sleep in empty maps; a traveling companion may finish walking
-to a portal after its leader leaves. This remains a 20-resident prototype, not a
-benchmark of thousands of active bots. Following resumes by request after a
-server restart; identities and conversation memories persist.
+Residents use authored, contextual dialogue and need no AI API key. They remember
+conversations, recognize acquaintances occasionally, react to nearby level-ups,
+and vary their timing. Unsolicited chatter has per-speaker and per-map cooldowns
+and suppresses repeated lines. `@residents` identifies them as simulated actors.
+They cannot trade, accept party invites, complete quests, or use boss mechanics.
+Scripted, closed, and event portals are excluded. Residents do not occupy player
+slots or control monsters. Ordinary activity and hunting sleep in empty maps;
+travelers can finish walking to their exit. This is a 28-identity prototype,
+not a benchmark of thousands of active bots. Following resumes by request after
+a server restart; identities and conversation memories persist, while activity
+timers, private collections, and combat health are session state.
 
 Navigation uses static footholds, ladders and ropes. Swimming, flight, and moving
 platforms are not yet supported. The Henesys-to-field round trip is covered by

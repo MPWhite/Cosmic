@@ -36,5 +36,6 @@ public enum MapObjectType {
     PLAYER_NPC,
     DRAGON,
     KITE,
-    TOWN_RESIDENT
+    TOWN_RESIDENT,
+    TOWN_RESIDENT_LOOT
 }
