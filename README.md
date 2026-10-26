@@ -49,6 +49,42 @@ The project follows the [semantic versioning](https://semver.org/) scheme using 
 * *Major changes* are treated as MAJOR: __1__.2.3 -> __2.0.0__
 
 ## Getting started
+### macOS quick start (Apple Silicon or Intel)
+
+Install [Homebrew](https://brew.sh), then run from this directory:
+
+```sh
+./setup-macos.sh
+./launch-macos.command
+```
+
+Setup installs Java 21 and MySQL 8.4, builds and tests the server, and creates a
+database in `.local/mysql`. The launcher uses Java 21 without changing your system
+Java, starts the database on `127.0.0.1:3307`, and runs Cosmic. Wait for
+`Cosmic is now online`, then follow the macOS instructions in `../Cosmic-client`.
+You can also double-click `launch-macos.command` in Finder.
+
+Press **Control-C** in the server terminal to stop it. Stop the database with
+`./macos/database.sh stop`; restart it with the launcher. Accounts and characters
+persist in `.local/mysql`; keep that directory to preserve your game. Database
+logs are in `.local/mysql.log`, and server logs are in `logs/`.
+
+The local database uses the `root` account with an empty password and listens only
+on loopback. This setup is for local development. Use
+`COSMIC_DB_PORT=3308 ./launch-macos.command` if port 3307 is occupied (stop this
+project's database before changing its port). Rebuild after source changes with
+`./setup-macos.sh`. Allow about 2 GB of memory for the server; override with
+`COSMIC_HEAP=3g` if needed.
+
+For an existing database, use:
+
+```sh
+DB_URL='jdbc:mysql://127.0.0.1:3306/cosmic' DB_USER=cosmic DB_PASS=your-password ./launch.sh
+```
+
+`DB_URL`, `DB_HOST`, `DB_USER`, and `DB_PASS` override the corresponding YAML
+settings; `DB_URL` takes precedence over `DB_HOST`.
+
 Follow along as I go through the steps to play the game on your local computer from start to finish. I won't go into extreme detail, so if you don't have prior experience with Java or git, you might struggle.
 
 We will set up the following:
@@ -96,7 +132,7 @@ Making changes becomes a bit more tedious though as you have to rebuild the serv
 #### Jar
 Another option is to start the server from a terminal by running a jar file. You first need to build the jar file from source which requires [Maven](https://maven.apache.org/). Fortunately, [Maven Wrapper](https://maven.apache.org/wrapper/) is provided so you don't have to install Maven separately.
 
-Building the jar file is as easy as running ``./mvnw.cmd clean package``. The project is configured to produce a "fat" jar which contains all dependencies (by utilizing the _maven-assembly-plugin_). Note that the WZ XML files are __not__ included in the jar.
+Building the jar file is as easy as running ``./mvnw clean package`` on macOS/Linux or ``./mvnw.cmd clean package`` on Windows. The project is configured to produce a "fat" jar which contains all dependencies (by utilizing the _maven-assembly-plugin_). Note that the WZ XML files are __not__ included in the jar.
 
 To run the jar, a ``launch.bat`` file is provided for convenience. Simply double-click it and the server will start in a new terminal window. 
 

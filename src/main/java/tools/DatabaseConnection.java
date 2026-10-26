@@ -14,6 +14,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -43,21 +44,22 @@ public class DatabaseConnection {
         return jdbi.open();
     }
 
-    private static String getDbUrl() {
+    private static String getDbUrl(Map<String, String> environment) {
         // Environment variables override what's defined in the config file
-        // This feature is used for the Docker support
-        String hostOverride = System.getenv("DB_HOST");
-        String host = hostOverride != null ? hostOverride : YamlConfig.config.server.DB_HOST;
-        String dbUrl = String.format(YamlConfig.config.server.DB_URL_FORMAT, host);
-        return dbUrl;
+        // DB_URL also allows a local database to use a different port.
+        if (environment.containsKey("DB_URL")) {
+            return environment.get("DB_URL");
+        }
+        String host = environment.getOrDefault("DB_HOST", YamlConfig.config.server.DB_HOST);
+        return String.format(YamlConfig.config.server.DB_URL_FORMAT, host);
     }
 
-    private static HikariConfig getConfig() {
+    static HikariConfig getConfig(Map<String, String> environment) {
         HikariConfig config = new HikariConfig();
 
-        config.setJdbcUrl(getDbUrl());
-        config.setUsername(YamlConfig.config.server.DB_USER);
-        config.setPassword(YamlConfig.config.server.DB_PASS);
+        config.setJdbcUrl(getDbUrl(environment));
+        config.setUsername(environment.getOrDefault("DB_USER", YamlConfig.config.server.DB_USER));
+        config.setPassword(environment.getOrDefault("DB_PASS", YamlConfig.config.server.DB_PASS));
 
         final int initFailTimeoutSeconds = YamlConfig.config.server.INIT_CONNECTION_POOL_TIMEOUT;
         config.setInitializationFailTimeout(SECONDS.toMillis(initFailTimeoutSeconds));
@@ -81,7 +83,7 @@ public class DatabaseConnection {
             return true;
         }
 
-        final HikariConfig config = getConfig();
+        final HikariConfig config = getConfig(System.getenv());
         log.info("Initializing database connection pool. Connecting to:'{}' with user:'{}'", config.getJdbcUrl(),
                 config.getUsername());
         Instant initStart = Instant.now();
