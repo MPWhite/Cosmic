@@ -16,6 +16,31 @@ import static org.mockito.Mockito.when;
 
 class TownResidentTravelControlTest {
     @Test
+    void unreachablePortalApproachDoesNotUseTheLocalLeaderRecovery() {
+        var surfaces = List.of(new CompanionNavigation.Surface(1, 0, 100, 200, 100),
+                new CompanionNavigation.Surface(2, 1000, 100, 1400, 100));
+        var navigation = CompanionNavigation.of(surfaces, List.of());
+        MapleMap map = mock(MapleMap.class);
+        FootholdTree footholds = new FootholdTree(new Point(-2000, -1000), new Point(2000, 1000));
+        for (var surface : surfaces) {
+            footholds.insert(new Foothold(new Point(surface.x1(), surface.y1()),
+                    new Point(surface.x2(), surface.y2()), surface.id()));
+        }
+        when(map.getFootholds()).thenReturn(footholds);
+        var resident = new TownResident(1_500_000_001, ResidentProfiles.all().getFirst(), map,
+                new Point(35, 95), navigation);
+        resident.setFollowTarget(new Point(1150, 100), false);
+        resident.tick(1000);
+        for (int now = 1050; now <= 20_000; now += 50) {
+            resident.tick(now);
+        }
+        assertEquals(new Point(35, 100), resident.getPosition(),
+                "an unreachable portal must wait for the travel service's announced cross-map fallback");
+        assertEquals(0, resident.getRecoveryCount(),
+                "the nine-second same-map leader recovery must not teleport to an old-map portal");
+    }
+
+    @Test
     void waitingCompanionStaysPutAndCanResumeFollowing() {
         var navigation = CompanionNavigation.of(List.of(new CompanionNavigation.Surface(1, 0, 100, 500, 100)), List.of());
         MapleMap map = mock(MapleMap.class);

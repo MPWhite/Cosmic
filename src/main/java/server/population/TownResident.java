@@ -396,7 +396,9 @@ public final class TownResident extends AbstractMapObject {
             progressPosition = position;
             lastProgress = nowMillis;
         }
-        if (!isTraversing() && nowMillis - lastProgress >= STUCK_TIMEOUT) {
+        // Exact targets are portal approaches. Their cross-map recovery belongs
+        // to CompanionTravel, which can notify the leader in the destination map.
+        if (keepFollowDistance && !isTraversing() && nowMillis - lastProgress >= STUCK_TIMEOUT) {
             recoverNearLeader(nowMillis);
         }
     }
