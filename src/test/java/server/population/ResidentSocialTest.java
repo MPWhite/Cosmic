@@ -54,21 +54,27 @@ class ResidentSocialTest {
 
         // Compensate for the identity seed so the subject stays the same while one voice changes.
         var differentAnswer = dialogue.exchange(mia, juniper, town, pip.id() - juniper.id());
-        assertEquals(exchange.opener(), differentAnswer.opener());
+        assertEquals(afterAddress(exchange.opener(), pip), afterAddress(differentAnswer.opener(), juniper));
         assertNotEquals(exchange.answer(), differentAnswer.answer());
         var differentOpener = dialogue.exchange(oak, pip, town, mia.id() - oak.id());
         assertNotEquals(exchange.opener(), differentOpener.opener());
-        assertEquals(exchange.answer(), differentOpener.answer());
+        assertEquals(afterAddress(exchange.answer(), mia), afterAddress(differentOpener.answer(), oak));
 
         var variants = new HashSet<ResidentDialogue.Exchange>();
         for (int sequence = 0; sequence < 12; sequence++) {
             var pair = dialogue.exchange(mia, pip, town, sequence);
-            assertFalse(pair.opener().isBlank());
-            assertFalse(pair.answer().isBlank());
+            assertFalse(afterAddress(pair.opener(), pip).isBlank());
+            assertFalse(afterAddress(pair.answer(), mia).isBlank());
             assertTrue(pair.opener().length() < 80);
             assertTrue(pair.answer().length() < 80);
             variants.add(pair);
         }
-        assertTrue(variants.size() >= 3);
+        assertTrue(variants.size() >= 6, "the same pair needs multiple exchanges per subject");
+    }
+
+    private static String afterAddress(String line, ResidentProfiles.Profile addressed) {
+        String prefix = addressed.name() + ", ";
+        assertTrue(line.startsWith(prefix), "make the target of each exchange visible: " + line);
+        return line.substring(prefix.length());
     }
 }

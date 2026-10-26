@@ -134,6 +134,67 @@ class ResidentDialogueTest {
     }
 
     @Test
+    void directTrashTalkGetsDistinctComebacksAndDoesNotAcceptAFollowOffer() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var pip = ResidentProfiles.find("PipArcher").orElseThrow();
+        dialogue.reply(pip, 42, "Guest", "want to hunt?");
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(pip, 42, "Pip, ur trash lol"));
+
+        var replies = new HashSet<String>();
+        String previous = "";
+        for (String jab : List.of("Pip, ur trash lol", "noob", "git gud", "roast me", "you suck", "ez")) {
+            String response = dialogue.reply(pip, 42, "Guest", jab);
+            assertFromTopic(pip, ResidentVoice.Topic.BANTER, response);
+            assertNotEquals(previous, response, "consecutive jabs should not repeat the same comeback");
+            replies.add(response);
+            previous = response;
+        }
+        assertTrue(replies.size() >= 4);
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(pip, 42, "yes"));
+        assertTrue(dialogue.reply(pip, 42, "Guest", "remember me?").contains("talking shit"));
+    }
+
+    @Test
+    void complaintsStayOnSubjectAndSelfDeprecationDoesNotReceiveAnAttackComeback() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        for (String name : List.of("MapleMia", "PipArcher", "Juniper", "OakWarden", "HazelHop")) {
+            var resident = ResidentProfiles.find(name).orElseThrow();
+            assertFromTopic(resident, ResidentVoice.Topic.BAD_DROPS,
+                    dialogue.reply(resident, 42, "Guest", "drops are shit lol"));
+            assertFromTopic(resident, ResidentVoice.Topic.LAG,
+                    dialogue.reply(resident, 42, "Guest", "this lag is bullshit"));
+            assertFromTopic(resident, ResidentVoice.Topic.SELF_DEPRECATION,
+                    dialogue.reply(resident, 42, "Guest", "im a noob lol"));
+            assertFromTopic(resident, ResidentVoice.Topic.COMPLAINT,
+                    dialogue.reply(resident, 42, "Guest", "this grind is shit"));
+            assertFromTopic(resident, resident.companion() ? ResidentVoice.Topic.FOLLOW_ACCEPT : ResidentVoice.Topic.FOLLOW_DECLINE,
+                    dialogue.reply(resident, 42, "Guest", "fucking follow me"));
+            assertFromTopic(resident, ResidentVoice.Topic.WAIT_ACCEPT,
+                    dialogue.reply(resident, 42, "Guest", "dont fucking follow me"));
+        }
+    }
+
+    @Test
+    void saltyPublicAdvertisementsDoNotBecomeResidentConversation() {
+        for (String advertisement : List.of("wtb trash scrolls", "wts shit equips", "lfg noobs", "lfm pq noobs")) {
+            assertFalse(ResidentDialogue.continuesConversation(advertisement), advertisement);
+        }
+        assertTrue(ResidentDialogue.continuesConversation("ur trash lol"));
+    }
+
+    @Test
+    void anEnthusiasticSwearingReplyAcceptsOnlyAPendingCompanionOffer() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var pip = ResidentProfiles.find("PipArcher").orElseThrow();
+        for (String answer : List.of("fuck yeah", "hell yeah", "fucking yes", "hell yeah lol", "fucking yes pls", "aight", "k")) {
+            assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(pip, 42, answer));
+            dialogue.reply(pip, 42, "Guest", "wanna train?");
+            assertEquals(ResidentDialogue.Intent.FOLLOW, dialogue.intentFor(pip, 42, answer));
+            assertFromTopic(pip, ResidentVoice.Topic.FOLLOW_ACCEPT, dialogue.reply(pip, 42, "Guest", answer));
+        }
+    }
+
+    @Test
     void activityContextChangesWhatTheResidentSaysWithoutInventingTradesOrQuests() {
         var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
         var mia = ResidentProfiles.all().getFirst();

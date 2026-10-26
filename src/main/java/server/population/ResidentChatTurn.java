@@ -26,12 +26,19 @@ final class ResidentChatTurn {
 
     String message() {
         String selected = messages.peekLast();
+        int selectedPriority = -1;
         for (String message : messages) {
             var intent = ResidentChatInput.parse(message, name, List.of("Mia", "Pip", "Juniper")).intent();
-            if (switch (intent) {
-                case GREETING, THANKS, ACK, LAUGH, GRATS -> false;
-                default -> true;
-            }) selected = message;
+            int priority = switch (intent) {
+                case GREETING, THANKS, LAUGH, GRATS -> 0;
+                // An affirmative can accept a pending companion offer. Trailing laughter must not erase it.
+                case ACK -> 1;
+                default -> 2;
+            };
+            if (priority >= selectedPriority) {
+                selected = message;
+                selectedPriority = priority;
+            }
         }
         return selected == null ? "hey" : selected;
     }

@@ -3,6 +3,7 @@ package server.population;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -61,6 +62,47 @@ class ResidentVoiceTest {
             for (String line : ResidentVoice.lines(profile, ResidentVoice.Topic.ACTIVITY, field)) {
                 String lower = line.toLowerCase(Locale.ROOT);
                 assertFalse(lower.contains("hene") || lower.contains("town"), line);
+            }
+        }
+    }
+
+    @Test
+    void comebacksAndSpecificFrustrationsHaveSeparateRepertoiresForEveryVoice() {
+        var seen = EnumSet.noneOf(ResidentVoice.Voice.class);
+        for (var profile : allProfiles()) {
+            if (!seen.add(ResidentVoice.voice(profile))) {
+                continue;
+            }
+            var banter = new HashSet<>(Arrays.asList(ResidentVoice.lines(profile,
+                    ResidentVoice.Topic.BANTER, ResidentDialogue.Context.town())));
+            assertTrue(banter.size() >= 8, "comebacks must not become a single recurring punchline");
+            for (var topic : List.of(ResidentVoice.Topic.BAD_DROPS, ResidentVoice.Topic.LAG,
+                    ResidentVoice.Topic.SELF_DEPRECATION)) {
+                var specific = new HashSet<>(Arrays.asList(ResidentVoice.lines(profile, topic,
+                        ResidentDialogue.Context.town())));
+                assertTrue(specific.size() >= 4);
+                specific.retainAll(banter);
+                assertTrue(specific.isEmpty(), "a frustrated player should not receive a clapback: " + topic);
+            }
+        }
+    }
+
+    @Test
+    void namedExchangesStayBoundedAcrossTheRosterAndAllActivities() {
+        var profiles = allProfiles();
+        for (int index = 0; index < profiles.size(); index++) {
+            var first = profiles.get(index);
+            var second = profiles.get((index + 1) % profiles.size());
+            for (var activity : ResidentDialogue.Activity.values()) {
+                var context = new ResidentDialogue.Context(activity, "Henesys", false);
+                for (int sequence = 0; sequence < 12; sequence++) {
+                    var exchange = ResidentVoice.exchange(first, second, context, sequence);
+                    assertTrue(exchange.opener().startsWith(second.name() + ", "));
+                    assertTrue(exchange.answer().startsWith(first.name() + ", "));
+                    assertTrue(exchange.opener().length() <= 80, exchange.opener());
+                    assertTrue(exchange.answer().length() <= 80, exchange.answer());
+                    assertEquals(exchange, ResidentVoice.exchange(first, second, context, sequence));
+                }
             }
         }
     }

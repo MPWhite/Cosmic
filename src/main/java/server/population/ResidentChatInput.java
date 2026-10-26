@@ -12,7 +12,7 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
         FOLLOW, STAY, LEVEL, JOB, PARTY, BUY, SELL, TRADE, MAP_COURTESY, BUFF,
         GREETING, THANKS, GRATS, BRB, LAUGH, GOODBYE, LOCATION, IDENTITY,
         HUNT, HELP, MEMORY, STATUS, LEVEL_UP, DIED, ACK, DISMISS, COMPANY, ABOUT,
-        WELCOME_BACK, COMPLIMENT, PROGRESS, MONSTERS, UNKNOWN
+        WELCOME_BACK, COMPLIMENT, PROGRESS, MONSTERS, BANTER, COMPLAINT, UNKNOWN
     }
 
     private static final int MAX_INPUT = 512;
@@ -22,6 +22,15 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
             "^(?:(?:actually|hey|hi|hello|yo|please|pls|plz|can you|can u|could you|could u|would you|would u|will you|will u) )+");
     private static final Pattern POLITE_SUFFIX = Pattern.compile(
             "(?: (?:please|pls|plz|now|for a sec|for a bit|thanks|thx|ty|lol|haha|lmao))+$");
+    private static final Pattern COMMAND_EMPHASIS = Pattern.compile(
+            "(?<!\\S)(?:fuck|fucking|fuckin|damn|goddamn|goddamned|bloody)(?!\\S)");
+    private static final Pattern COMMAND_TAUNT_SUFFIX = Pattern.compile(
+            "(?: (?:you )?(?:noob|nub|n00b|fucker|asshole|dumbass|idiot))+$");
+    private static final Pattern SELF_DEPRECATION = Pattern.compile(
+            "(?:^| )(?:i suck|we suck|im (?:such a |a complete |a total |an absolute |a |an |so |really )?(?:noobs?|nubs?|n00bs?|trash|bad|garbage|shit|terrible|awful)"
+                    + "|i am (?:such a |a complete |a total |an absolute |a |an |so |really )?(?:noobs?|nubs?|n00bs?|trash|bad|garbage|shit|terrible|awful)"
+                    + "|we are (?:such |so |really )?(?:noobs?|nubs?|n00bs?|trash|bad|garbage|shit|terrible|awful)"
+                    + "|my (?:aim|damage|dmg|build|gear|char|character) (?:is )?(?:trash|bad|garbage|shit|sucks|terrible|awful))(?: |$)");
     private static final Pattern FOLLOW = Pattern.compile(
             "(?:follow(?: me)?|follow me to .+|walk with me|come with me|come along|lets walk|tag along"
                     + "|lets go|keep following(?: me)?|(?:dont|do not|never) stop following(?: me)?"
@@ -89,12 +98,19 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
         return false;
     }
 
+    /** Keep the dialogue's empathetic reply selection aligned with intent classification. */
+    public boolean selfDeprecating() {
+        return isSelfDeprecating(text);
+    }
+
     private static Intent classify(String text) {
-        String command = polite(text);
-        if (FOLLOW.matcher(command).matches()) {
+        String plain = withoutEmphasis(text);
+        String command = polite(plain);
+        String movement = polite(COMMAND_TAUNT_SUFFIX.matcher(command).replaceFirst(""));
+        if (FOLLOW.matcher(movement).matches()) {
             return Intent.FOLLOW;
         }
-        if (STAY.matcher(command).matches()) {
+        if (STAY.matcher(movement).matches()) {
             return Intent.STAY;
         }
         if (text.isEmpty()) {
@@ -110,20 +126,42 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
             return Intent.JOB;
         }
 
-        // Specific social/game requests outrank greetings and laughter in the same message.
+        // Public ads keep their routing even when the item or recruitment pitch is irreverent.
         if (anyPhrase(text, "wtb", "buy", "buying")) {
             return Intent.BUY;
         }
         if (anyPhrase(text, "wts", "sell", "selling")) {
             return Intent.SELL;
         }
-        if (anyPhrase(text, "trade", "trading", "price", "mesos", "meso", "free items", "gotpots", "got pots", "any pots", "have pots")) {
-            return Intent.TRADE;
+        if (anyPhrase(text, "lfp", "lfg", "lfm") || anyPhrase(text, "recruiting")
+                && anyPhrase(text, "party", "pq", "kpq", "lpq", "opq", "hpq", "cpq")) {
+            return Intent.PARTY;
         }
-        if (command.matches("cc(?: ?(?:pls|please|plz))?")
+
+        if (movement.matches("cc(?: ?(?:pls|please|plz))?")
                 || anyPhrase(text, "change channel", "map taken", "maptaken", "map occupied", "my map", "this map is mine",
                 "ks", "ksing", "kser", "killsteal", "kill stealing") || command.equals("taken")) {
             return Intent.MAP_COURTESY;
+        }
+        if (isSelfDeprecating(text)) {
+            return Intent.COMPLAINT;
+        }
+        if (anyPhrase(plain, "noob", "nub", "n00b", "noobs", "nubs", "n00bs", "ur trash", "youre trash", "you are trash",
+                "u are trash", "you suck", "u suck", "ur bad", "youre bad", "you are bad", "ur garbage", "youre garbage",
+                "you are garbage", "ur shit", "youre shit", "you are shit", "ur washed", "youre washed", "you are washed",
+                "ur weak", "youre weak", "you are weak", "says you", "no u", "stfu",
+                "ez", "ezpz", "git gud", "get gud", "get good", "skill issue", "roast me", "talk shit", "trash talk")
+                || anyPhrase(text, "fuck you")
+                || plain.matches(".*\\b(?:your|ur) (?:aim|damage|dmg|build|gear|bow|staff|hat|fit) (?:is )?(?:trash|bad|garbage|shit|sucks|washed)\\b.*")) {
+            return Intent.BANTER;
+        }
+        if (gameComplaint(text)) {
+            return Intent.COMPLAINT;
+        }
+
+        // Specific social/game requests outrank greetings and laughter in the same message.
+        if (anyPhrase(text, "trade", "trading", "price", "mesos", "meso", "free items", "gotpots", "got pots", "any pots", "have pots")) {
+            return Intent.TRADE;
         }
         if (anyPhrase(text, "lfp", "lfg", "lfm", "kpq", "lpq", "opq", "hpq", "cpq", "pq", "party", "party invite")
                 || command.matches("(?:invite|inv|pt)(?: me)?")) {
@@ -164,7 +202,7 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
         if (anyPhrase(text, "wb", "welcome back", "im back") || command.equals("back")) {
             return Intent.WELCOME_BACK;
         }
-        if (anyPhrase(text, "nicehat", "nicedmg", "nice hat", "nice dmg", "nice damage", "nice outfit", "nice name", "nice gear")) {
+        if (anyPhrase(withoutEmphasis(text), "nicehat", "nicedmg", "nice hat", "nice dmg", "nice damage", "nice outfit", "nice name", "nice gear")) {
             return Intent.COMPLIMENT;
         }
         if (anyPhrase(text, "percent", "almost leveled", "almost levelled", "almost there")) {
@@ -178,6 +216,12 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
         }
         if (anyPhrase(text, "grats", "gratz", "gz", "congrats", "congratz", "congratulations")) {
             return Intent.GRATS;
+        }
+        if (command.matches("(?:hell )?(?:ok|okay|kk|k|sure|yes|ye|yea|yep|yeah|yup|alright|aight)")) {
+            return Intent.ACK;
+        }
+        if (anyPhrase(text, "fuck", "fucking", "fuckin", "shit", "damn", "goddamn", "goddamned", "bullshit", "wtf", "fml")) {
+            return Intent.COMPLAINT;
         }
         if (anyPhrase(text, "brb", "afk", "bbl", "be right back", "back in a minute")) {
             return Intent.BRB;
@@ -194,10 +238,28 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
         if (anyPhrase(text, "hello", "hey", "hi", "hiya", "morning", "afternoon", "yo")) {
             return Intent.GREETING;
         }
-        if (command.matches("(?:ok|okay|kk|k|sure|yes|ye|yea|yep|yeah|yup|alright|aight)")) {
-            return Intent.ACK;
-        }
         return Intent.UNKNOWN;
+    }
+
+    private static boolean isSelfDeprecating(String text) {
+        String plain = withoutEmphasis(text);
+        return SELF_DEPRECATION.matcher(plain).find()
+                || plain.matches("^were (?:such |so |really )?(?:noobs?|nubs?|n00bs?|trash|bad|garbage|shit)(?: .*)?");
+    }
+
+    private static boolean gameComplaint(String text) {
+        if (anyPhrase(text, "lag", "laggy", "lagging", "dc", "dced", "disconnected", "rng", "bullshit", "wtf", "fml",
+                "fuck this", "screw this", "this sucks", "this is trash", "this is shit", "im tilted", "im salty",
+                "no drops", "nothing drops", "zero drops")) {
+            return true;
+        }
+        String plain = withoutEmphasis(text);
+        boolean game = anyPhrase(text, "grind", "grinding", "drops", "drop", "loot", "scroll", "scrolls", "scrolled", "exp",
+                "game", "server", "damage", "dmg", "aim", "mesos", "meso", "pots", "potions", "ladders", "mobs", "mushrooms");
+        return game && (anyPhrase(plain, "shit", "trash", "garbage", "sucks", "suck", "terrible", "awful", "hate", "slow",
+                "brutal", "painful", "cursed", "broke", "wasted", "useless", "scam", "rigged", "impossible", "expensive",
+                "too much", "forever", "boring")
+                || text.matches(".*\\b(?:this|these|that|those) (?:fucking|damn|goddamn) .+"));
     }
 
     private static boolean anyPhrase(String text, String... phrases) {
@@ -212,6 +274,10 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
 
     private static String polite(String text) {
         return POLITE_SUFFIX.matcher(POLITE_PREFIX.matcher(text).replaceFirst("")).replaceFirst("");
+    }
+
+    private static String withoutEmphasis(String text) {
+        return SPACE.matcher(COMMAND_EMPHASIS.matcher(text).replaceAll(" ")).replaceAll(" ").strip();
     }
 
     private static String stripAddress(String text, String name) {

@@ -85,7 +85,11 @@ conversations, recognize acquaintances occasionally, react to nearby level-ups,
 and vary their timing. Unsolicited chatter has per-speaker and per-map cooldowns
 and suppresses repeated lines. `@residents` identifies them as simulated actors.
 Chat uses five consistent voices and Maple shorthand: try `Pip, lvl?`, `party?`,
-`got pots?`, `brb`, or `back`. Short message bursts are combined into one reply;
+`got pots?`, `brb`, or `back`. Residents trade named jabs, complain about the grind,
+and use casual profanity. Try `Pip, ur trash lol` or `Mia, roast me` for a comeback;
+bad drops, lag, and self-deprecating complaints get different reactions. The five
+voices range from abrasive grinders to dry, quiet regulars and sarcastic helpers.
+Short message bursts are combined into one reply;
 follow-up questions and answers keep brief conversational context. Saying `yes`
 after a companion offers to come accepts the offer. `hold up` pauses a companion,
 and asking an independent hunter `cc pls` gives you two minutes of hunting space

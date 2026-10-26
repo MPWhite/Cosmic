@@ -10,7 +10,7 @@ public final class ResidentVoice {
         HELLO, RETURN, THANKS, LAUGH, ACK, BRB, BYE, ACTIVITY,
         IDLE, REST, SHOP, TRAVEL, HUNT, LOOT, FOLLOW, WAIT,
         FOLLOW_ACCEPT, FOLLOW_DECLINE, WAIT_ACCEPT, LEVEL_UP, DEATH,
-        COMPLAINT, MAP_SPACE, TRADE, PARTY, COMPANY, MOBS, UNKNOWN
+        BANTER, COMPLAINT, BAD_DROPS, LAG, SELF_DEPRECATION, MAP_SPACE, TRADE, PARTY, COMPANY, MOBS, UNKNOWN
     }
 
     private ResidentVoice() { }
@@ -49,11 +49,11 @@ public final class ResidentVoice {
         }
         if (topic == Topic.IDLE && !context.mapName().equalsIgnoreCase("Henesys")) {
             return phrases(switch (voice(profile)) {
-                case SOCIAL -> "just hanging out|idle for a bit|not doing much rn|chilling here";
-                case GRINDER -> "idle|not grinding rn|standing around|nothing much";
-                case HELPER -> "Just hanging out|Taking a minute here|Idle for a bit|Nothing much";
-                case QUIET -> "just here|hanging around|idle for a bit|quiet minute";
-                case PLAYFUL -> "standing around again|exp can wait|not doing much F2|hanging here";
+                case SOCIAL -> "grinding can kiss my ass rn|idle, judging outfits|not doing much rn|chilling instead of suffering";
+                case GRINDER -> "idle. cope|not grinding rn|break from this shit|standing around";
+                case HELPER -> "Taking a break from expert opinions|The exp can wait. Somehow.|Idle. Truly advanced gameplay.|Nothing much";
+                case QUIET -> "quietly judging builds|no exp, no problem|standing here. very advanced.|not grinding. tragic.";
+                case PLAYFUL -> "professional shit talker rn|exp can go to hell|doing jack shit|hanging here, causing no problems";
             });
         }
         return phrases(switch (voice(profile)) {
@@ -67,34 +67,38 @@ public final class ResidentVoice {
 
     private static String social(Topic topic, boolean companion) {
         return switch (topic) {
-            case HELLO -> "heyy|hey o/|hii|oh hi";
-            case RETURN -> "wb!|oh hey again|back already :D|heyy wb";
-            case THANKS -> "np :)|yw|ofc|all good";
-            case LAUGH -> "lmao|haha yeah|ok that got me|F2";
+            case HELLO -> "yo|heyy|oh hey|sup";
+            case RETURN -> "wb|oh damn, back already|there u are|back for more bullshit?";
+            case THANKS -> "np|yw, dont make it weird|yea yea|got u";
+            case LAUGH -> "lmao|nah thats foul lol|ok that got me|LOL damn";
             case ACK -> "kk|sounds good|yep yep|fair";
             case BRB -> "kk, cya in a bit|oki|kk|yep, later";
             case BYE -> "cya o/|later!|byee|gl with the grind";
-            case IDLE -> "hene is the endgame|just hanging out|grinding can wait a bit|town time";
-            case REST -> "break timee|chilling for a min|taking a little break|mobs can wait";
-            case SHOP -> "just looking, not buying|window shopping rn|the shop menu is dangerous|looking at equips again";
-            case TRAVEL -> "on the move|wandering a bit|passing through|walking around again";
-            case HUNT -> "grinding a bit rn|mobs first, typing second|back to bonking things|getting some training in";
-            case LOOT -> "sec, picking this up|gotta grab the drops|loot first|one sec, floor stuff";
+            case IDLE -> "hene: less exp, more shit talk|grinding can kiss my ass rn|just here judging outfits|hene chat is the real pvp";
+            case REST -> "taking a break from this shit|mobs can wait|chilling for a min|not grinding every damn second";
+            case SHOP -> "looking, not buying this crap|window shopping. tragic stuff|some equips look like a dare|just checking the shop";
+            case TRAVEL -> "walking around like an idiot|on the move|so much damn walking|just passing through";
+            case HUNT -> "this grind is some bullshit|mobs first, shit talk second|grinding rn|training. allegedly fun";
+            case LOOT -> "sec, grabbing this crap|loot first|picking stuff up|hold on, floor junk";
             case FOLLOW -> "yep i'm coming|still with u|following along|right here";
-            case WAIT -> "still here :)|yep, waiting|hanging here til you're back|haven't moved";
+            case WAIT -> "still here. thrilling stuff|yep, waiting|havent moved|standing around like a pro";
             case FOLLOW_ACCEPT -> "yea lets go|kk coming!|i'm in, lead the way|ok let's move";
             case FOLLOW_DECLINE -> "gonna do my own thing rn|not tagging along today, sry|i'm staying around here";
             case WAIT_ACCEPT -> "kk i'll stay here|yep, stopping here|ok i'll wait";
-            case LEVEL_UP -> "ayy grats!|gz!!|grats :D|nicee, gz";
-            case DEATH -> "nooo rip|oof :(|ahh rip|that hurts";
-            case COMPLAINT -> "pots eat meso so fast|the grind is a grind|ladders are annoying|cc pls gets old fast";
+            case LEVEL_UP -> "ayy gz!|damn, grats|gz, now do it again lol|nicee gz";
+            case DEATH -> "oh shit rip|damn that sucks|F4|rip, maple is rude as hell";
+            case COMPLAINT -> "this grind is bullshit sometimes|pots eat meso like its their job|the exp bar has zero respect|maple really makes u work for crumbs|all this grind and ladders too. rude|cc pls is not a personality";
             case MAP_SPACE -> "oh kk, i'll chill|sure, go ahead|kk i'll stop a bit";
             case TRADE -> "can't trade, sry|no trades from me|nothing for sale here";
             case PARTY -> companion ? "can't join party, can still tag along tho|no party slot for me, sry"
                     : "can't join party, sry|not available for pq";
-            case COMPANY -> "hang out here :)|yea stay a bit|more people around is always good";
-            case MOBS -> "mushrooms look way too innocent|snails just minding their business|slimes have no respect for personal space";
-            case UNKNOWN -> "huh?|wait what|lost me there|hm?";
+            case COMPANY -> "hang here, judge builds with me|yea stay, its boring as hell alone|could use someone else to talk shit with";
+            case MOBS -> "mushrooms look innocent. little shits|slimes have zero damn manners|snails got the right idea, barely moving";
+            case UNKNOWN -> "wait what|the hell do u mean|u lost me|huh?";
+            case BANTER -> "lmao ok pro|kk mister pro|no u|cry more|talk shit, at least make it funny|u type like a failed scroll|did a snail write that for u|ur not that guy";
+            case BAD_DROPS -> "rng can kiss my ass|drop hunting is such bullshit|the drop table has jokes|rare drops exist to piss people off";
+            case LAG -> "lag is the actual damn boss|lag makes everything feel like shit|rip, even the packets hate grinding|lag has zero respect for pots";
+            case SELF_DEPRECATION -> "nah ur learning. shit takes a bit|everyone looks dumb on a ladder|being bad is the tutorial|ur fine, maple is just rude";
             case ACTIVITY -> throw new IllegalArgumentException("Resolve activity first");
         };
     }
@@ -102,67 +106,75 @@ public final class ResidentVoice {
     private static String grinder(Topic topic, boolean companion) {
         return switch (topic) {
             case HELLO -> "yo|sup|hey|hi";
-            case RETURN -> "wb|yo again|back|hey again";
+            case RETURN -> "wb|back to it|yo again|round two huh";
             case THANKS -> "np|yw|sure|all good";
-            case LAUGH -> "lol|heh|fair|lmao ok";
+            case LAUGH -> "lol|lmao damn|thats rough lol|heh";
             case ACK -> "k|kk|yep|works";
             case BRB -> "k|kk|aight|cya in a bit";
             case BYE -> "later|cya|gl|peace";
-            case IDLE -> "not grinding rn|town break|idle a bit|hene again";
-            case REST -> "break|resting a sec|taking 5|not grinding for a bit";
-            case SHOP -> "just checking equips|browsing|not buying|looking through the shop";
-            case TRAVEL -> "moving|passing through|walking over|on the way";
-            case HUNT -> "grinding|training rn|killing mobs|exp time";
-            case LOOT -> "looting|sec, drops|picking up|grab these first";
+            case IDLE -> "not grinding rn. shocking|hene is an exp sink|town chat is harder than mobs|idle. cope";
+            case REST -> "break from this shit|taking 5|exp can wait|not sweating rn";
+            case SHOP -> "just looking. prices are ass|checking equips|not buying this shit|browsing";
+            case TRAVEL -> "moving|too much damn walking|passing through|walking simulator";
+            case HUNT -> "grinding|this exp bar is a bastard|back to this shit|mobs dont kill themselves";
+            case LOOT -> "loot first|grabbing this crap|sec, drops|picking up";
             case FOLLOW -> "coming|with you|still here|following";
-            case WAIT -> "waiting|here|still waiting|staying put";
+            case WAIT -> "waiting|still here. zero excitement|staying put|yep, parked";
             case FOLLOW_ACCEPT -> "k let's go|coming|lead|kk moving";
             case FOLLOW_DECLINE -> "solo rn|doing my own thing|not coming, sry";
             case WAIT_ACCEPT -> "k, waiting|kk staying here|stopping";
-            case LEVEL_UP -> "gz|grats|nice lvl|gz, nice";
-            case DEATH -> "rip|oof|rough|ouch";
-            case COMPLAINT -> "pots cost too much|ladders waste time|meso goes straight into pots|exp bar is stubborn";
+            case LEVEL_UP -> "gz|grats. back to work|damn, nice|gz, keep grinding";
+            case DEATH -> "rip|shit happens|damn|oof, pot earlier";
+            case COMPLAINT -> "grind is grind. still bullshit|pots cost too damn much|exp bar barely gives a shit|ladders waste grinding time|meso goes straight into pots|the grind is an ugly habit";
             case MAP_SPACE -> "k, i'll pause|kk go ahead|i'll stop hitting";
             case TRADE -> "can't trade|no trades|not selling anything";
             case PARTY -> companion ? "can't join party. can still help|no party slot, sry"
                     : "can't join party|no pq for me";
-            case COMPANY -> "yeah hang here|all good|fine by me";
-            case MOBS -> "mushrooms everywhere|slimes are annoying|snails are easy enough";
-            case UNKNOWN -> "huh|wdym|what|didn't catch that";
+            case COMPANY -> "yeah hang here|fine, less boring|just dont spam pq invites";
+            case MOBS -> "mushrooms are annoying little shits|slimes are a pain in the ass|snails got no urgency";
+            case UNKNOWN -> "what|wdym|the hell|say that again";
+            case BANTER -> "mad cuz bad|less typing, more damage|shut up and hit something|kk pro|cool story|ur not that guy|talk shit after the grind|that insult needs accuracy";
+            case BAD_DROPS -> "drop hunting is ass|rng doesnt give a shit|rare means annoying as hell|the drop table is a bastard";
+            case LAG -> "lag kills the grind|damn lag|cant grind through packets|lag is bullshit. always";
+            case SELF_DEPRECATION -> "practice. nobody starts good|slow down a sec|pots first, ego later|learn the mobs. takes time";
             case ACTIVITY -> throw new IllegalArgumentException("Resolve activity first");
         };
     }
 
     private static String helper(Topic topic, boolean companion) {
         return switch (topic) {
-            case HELLO -> "Hey|Hi there|Heya|Hello";
-            case RETURN -> "Welcome back|Hey again|Wb!|Good to see you";
-            case THANKS -> "Np!|Anytime|You're welcome|No problem";
-            case LAUGH -> "Haha|Fair enough|That was good|Heh, yep";
+            case HELLO -> "Hey|Yo|Hey there|Sup";
+            case RETURN -> "Wb|Back for more punishment?|Hey again|Ah, you survived Maple chat";
+            case THANKS -> "Np|Anytime. Dont make it a thing|Yep, you got it|No problem";
+            case LAUGH -> "Damn lol|Fair enough|Okay, that was good|Heh. Brutal";
             case ACK -> "Yep|Sounds good|Alright|Got it";
             case BRB -> "Sure, see you in a bit|Alright|Yep, catch you in a bit|Okay";
             case BYE -> "Take care|Cya!|Good luck out there|See you around";
-            case IDLE -> "Just hanging out|Town break for me|A little Hene downtime|Taking a minute here";
-            case REST -> "Break time|Resting for a bit|Resting a minute|Taking a breather";
-            case SHOP -> "Just browsing the shop|Looking at equips|Window shopping|Not buying anything yet";
-            case TRAVEL -> "Passing through|Heading along|Stretching my legs|Walking for a bit";
-            case HUNT -> "Getting some training in|Busy with the mobs|Grinding for a bit|Back to training";
-            case LOOT -> "Just collecting these|One sec, picking up|Grabbing the drops|Looting first";
+            case IDLE -> "Hene. Where everyones a build expert.|Taking a break from expert opinions|Town chat needs accuracy scrolls|The exp can wait. Somehow.";
+            case REST -> "Resting. Try it sometime.|Break from the damn grind|Even tryhards need breaks|Not grinding is also an option";
+            case SHOP -> "Looking. Buying sense isnt an option.|Some equips are an expensive mistake|Just browsing the shop|At least looking doesnt cost meso";
+            case TRAVEL -> "Walking. Very advanced gameplay.|Heading along|Maple does love its damn ladders|Passing through";
+            case HUNT -> "Grinding. Riveting stuff.|Back to the damn mobs|Training, before chat gets any worse|The mobs are less annoying than chat";
+            case LOOT -> "Picking this stuff up|Loot first, opinions later|One sec, drops|Grabbing the floor junk";
             case FOLLOW -> "I'm with you|Coming along|Still here|Following along";
-            case WAIT -> "Still here|Waiting here|Yep, staying put|Right where you left me";
+            case WAIT -> "Still here. Exciting, I know.|Waiting here|Yep, staying put|This is some advanced standing around";
             case FOLLOW_ACCEPT -> "Sure, let's go|Yep, coming|Alright, lead the way|I'll come along";
             case FOLLOW_DECLINE -> "Doing my own thing today, sorry|I'll stay around here|Not tagging along today";
             case WAIT_ACCEPT -> "Sure, I'll wait here|Alright, stopping here|Yep, staying put";
-            case LEVEL_UP -> "Grats!|Gz!|Nice level, grats|Well earned!";
-            case DEATH -> "Ah, rip|Ouch, sorry|That's rough|Unlucky";
-            case COMPLAINT -> "The potion bill adds up|Ladders take some practice|That exp bar takes patience|Pots are never free";
+            case LEVEL_UP -> "Gz. Dont spend the SP all wrong.|Grats!|Damn, nice level|Gz, now the bar is empty again";
+            case DEATH -> "Ah shit, rip|Pots exist for a reason. Rip.|Damn, rough one|Rip. Take a second.";
+            case COMPLAINT -> "The grind is a pain in the ass|Pots are the only reliable meso sink|Maple rewards patience. Allegedly.|The exp bar has no damn sympathy|The ladder is always the real boss|Everyone has build advice. God help us.";
             case MAP_SPACE -> "Sure, I'll stop for a bit|Go ahead. I'll wait|Yep, taking a break";
             case TRADE -> "Can't trade, sorry|No items for sale from me|I can't trade items or meso";
             case PARTY -> companion ? "Can't join the party, but I can tag along|No party slot for me, sorry"
                     : "I can't join a party, sorry|Not available for a PQ";
-            case COMPANY -> "You're welcome to hang out|Glad for the company|There's room to hang out here";
-            case MOBS -> "Mushrooms are everywhere|Slimes are annoying up close|Snails are a decent start";
-            case UNKNOWN -> "Not sure what you mean|Didn't catch that|Hm?|Sorry, what?";
+            case COMPANY -> "Stay. Someone has to judge the builds.|You can hang out. No resume needed.|Company beats another grind lecture.";
+            case MOBS -> "Mushrooms have better patience than chat|Slimes are annoying little bastards|Snails make a strong case for taking breaks";
+            case UNKNOWN -> "What are you on about?|Lost me there|Come again?|That needs a translation";
+            case BANTER -> "Put a skill point into that comeback.|Damn. Almost an original insult.|Try accuracy before attitude.|All that confidence in a chat box.|Good talk. Truly advanced stuff.|Would scrolls fix that attitude?|Im sure that sounded clever to you.|Thats a beginner-tier insult.";
+            case BAD_DROPS -> "RNG has never given a damn|Drop hunting is patience, then swearing|Rare drops are a cruel joke|The drop table isnt your friend";
+            case LAG -> "Lag. The one boss gear cant fix.|Lag makes a mess of everything|Hard to play when packets dont|Damn, lag never helps";
+            case SELF_DEPRECATION -> "Good. Now you know what to practice.|Slow down. Dying faster isnt progress.|Use the pots. Saving them for retirement?|Being new isnt a damn crime.";
             case ACTIVITY -> throw new IllegalArgumentException("Resolve activity first");
         };
     }
@@ -170,74 +182,82 @@ public final class ResidentVoice {
     private static String quiet(Topic topic, boolean companion) {
         return switch (topic) {
             case HELLO -> "hi|hey|hello|oh, hi";
-            case RETURN -> "wb|hey again|oh hey|welcome back";
-            case THANKS -> "np|sure|you're welcome|it's fine";
-            case LAUGH -> "heh|haha|:)|fair";
+            case RETURN -> "wb|back for more|oh hey|still playing this, huh";
+            case THANKS -> "np|sure|its fine|dont mention it";
+            case LAUGH -> "heh|thats unfortunate lol|fair|quietly laughing";
             case ACK -> "okay|mhm|yep|sure";
             case BRB -> "okay|mhm|see you in a bit|sure";
             case BYE -> "bye|cya|take care|later";
-            case IDLE -> "just here|hanging around|idle for a bit|quiet minute";
-            case REST -> "resting|a little break|stopping for a bit|just a minute";
-            case SHOP -> "just looking|browsing the shop|looking at equips|not buying";
-            case TRAVEL -> "walking|passing through|wandering|moving along";
-            case HUNT -> "training a bit|grinding|mobs for now|still training";
-            case LOOT -> "picking these up|one sec|looting|the drops first";
+            case IDLE -> "quietly judging builds|no exp, no problem|standing here. very advanced.|not grinding. tragic.";
+            case REST -> "the grind can wait|resting|enough of that for a bit|doing nothing. efficiently.";
+            case SHOP -> "looking. not impressed.|just browsing|not buying|gear doesnt fix everything";
+            case TRAVEL -> "walking|more ladders. wonderful.|passing through|very scenic. very slow.";
+            case HUNT -> "still grinding|thrilling stuff|mobs. again.|the exp bar remains unimpressed";
+            case LOOT -> "picking this up|floor clutter|looting|sec. junk.";
             case FOLLOW -> "coming|still here|with you|following";
-            case WAIT -> "here|still waiting|staying here|haven't moved";
+            case WAIT -> "still here|riveting|waiting|hasnt become exciting yet";
             case FOLLOW_ACCEPT -> "sure. coming|okay, let's go|i'll come|mhm, lead the way";
             case FOLLOW_DECLINE -> "staying around here|not coming today|doing my own thing";
             case WAIT_ACCEPT -> "okay. i'll wait|staying here|sure, stopping";
-            case LEVEL_UP -> "grats|gz|nice, grats|grats :)";
-            case DEATH -> "ah, rip|oh no|ouch|sorry";
-            case COMPLAINT -> "pots add up|ladders are awkward|long grind|stubborn exp bar";
+            case LEVEL_UP -> "gz|grats. another bar awaits.|nice, gz|grats. the grind continues.";
+            case DEATH -> "rip|ah, shit|unfortunate|maple remains polite";
+            case COMPLAINT -> "the exp bar is a brick wall|pots add up. shockingly.|long grind. questionable reward.|maple respects nobody's time|damn ladders|another grind. wonderful.";
             case MAP_SPACE -> "ok. i'll wait|sure, i'll stop|stopping for a bit";
             case TRADE -> "can't trade, sorry|no trades|nothing for sale";
             case PARTY -> companion ? "can't join party. i can tag along|no party slot for me"
                     : "can't join party|not doing pq";
-            case COMPANY -> "you can stay|company is nice|fine with me";
-            case MOBS -> "snails are alright|mushrooms everywhere|slimes bounce a lot";
-            case UNKNOWN -> "hm?|didn't follow|sorry, what?|not sure";
+            case COMPANY -> "you can stay. just dont yell.|company is fine|beats arguing with the exp bar";
+            case MOBS -> "snails seem less annoying than chat|mushrooms everywhere. wonderful.|slimes have too much energy";
+            case UNKNOWN -> "hm?|what does that mean|lost me|not following";
+            case BANTER -> "noted. ignored.|ok, anyway|that sounded better in ur head|u done?|incredible insight|quite a speech for a mushroom game|ill survive the review|loud doesnt mean right";
+            case BAD_DROPS -> "rng remains a bastard|the drop table has no manners|rare drops. very rare patience.|drop hunting is miserable";
+            case LAG -> "lag. lovely.|even the packets need a break|hard to play through that shit|lag adds nothing of value";
+            case SELF_DEPRECATION -> "bad for now. thats fixable.|everyone starts somewhere|less panic helps|welcome to maple";
             case ACTIVITY -> throw new IllegalArgumentException("Resolve activity first");
         };
     }
 
     private static String playful(Topic topic, boolean companion) {
         return switch (topic) {
-            case HELLO -> "heyo|yo o/|oh hi|hiya";
-            case RETURN -> "wb wb|oh hey, round two|look who's back|wb :D";
-            case THANKS -> "np np|yw :D|ez|got u";
-            case LAUGH -> "LOL|F2|ok that's good|haha rip";
+            case HELLO -> "yo|oi|heyo|sup nerd";
+            case RETURN -> "wb nerd|back for more bullshit|oh hey, round two|there u are, nerd";
+            case THANKS -> "np nerd|yw|got u|dont make me be nice again";
+            case LAUGH -> "LMFAO|nah thats fucked lol|LOL|F2 thats brutal";
             case ACK -> "kk|deal|aight|works for me";
             case BRB -> "kk don't get eaten|aight cya in a bit|kk|roger that";
             case BYE -> "cyaaa|peace o/|later, gl|don't let the snails win";
-            case IDLE -> "hene > grinding|hanging around again|town time again|exp can wait";
-            case REST -> "break time F2|not bonking anything rn|taking a min|mobs get a break";
-            case SHOP -> "just looking F2|window shopping|those equips tho|not spending anything rn";
-            case TRAVEL -> "off we go|walking around again|just passing thru|field trip";
-            case HUNT -> "bonking mobs|grinding rn|mobs mobs mobs|back to training";
-            case LOOT -> "sec, loot|picking stuff up|grabbing these|can't leave drops behind";
+            case IDLE -> "hene is just pvp with typing|grinding? in this economy?|professional shit talker rn|hene builds character. badly.";
+            case REST -> "resting like a damn champion|exp can go to hell for a minute|doing absolutely jack shit|mobs get a break from my greatness";
+            case SHOP -> "just looking at expensive mistakes|window shopping like a pro|some gear is ugly as shit|not buying this crap";
+            case TRAVEL -> "off we go, allegedly|so much damn walking|walking. peak gameplay.|just passing thru";
+            case HUNT -> "back to this bullshit|mushroom violence. very educational.|grinding like an idiot|mobs mobs mobs, jesus";
+            case LOOT -> "grabbing the floor crap|loot first, trash talk later|sec, loot|cleaning up this damn floor";
             case FOLLOW -> "yep still here|tagging along|coming coming|following u";
-            case WAIT -> "still parked|yep i'm here|haven't moved F2|waiting";
-            case FOLLOW_ACCEPT -> "aight adventure time|kk let's move|coming, lead on|ok, field trip";
+            case WAIT -> "still parked, thrilling shit|havent escaped|waiting like a damn npc|yep, staying put";
+            case FOLLOW_ACCEPT -> "aight lets cause problems|kk coming, dont make it weird|lead on, brave mushroom warrior|ok, field trip";
             case FOLLOW_DECLINE -> "not coming rn, sry|gonna do my own thing|gonna stay around here";
             case WAIT_ACCEPT -> "kk parking here|ok i'll stay|stopping right here";
-            case LEVEL_UP -> "ayy gz!|F2 grats|gz gz|nice lvl :D";
-            case DEATH -> "F4|rippp|the mobs win this round|oh nooo";
-            case COMPLAINT -> "ladders hate me|pots eat all the meso|jump quests are pain|mobs never respect the chat box";
+            case LEVEL_UP -> "gz nerd|holy shit gz|nice lvl, dont get smug|gz, now suffer another bar";
+            case DEATH -> "LMFAO rip|oh shit F4|the mobs filed a complaint|rip, that game is rude as hell";
+            case COMPLAINT -> "this grind is ass|pots are a damn money pit|jump quests are psychological warfare|the exp bar can go to hell|all these ladders and no dignity|cc pls, but for the entire grind";
             case MAP_SPACE -> "kk truce with the mobs|got it, taking a break|ok ok, hands off the mobs";
             case TRADE -> "can't trade, sry|no trades from me|nothing for sale F4";
             case PARTY -> companion ? "can't join party, can still come tho|no party slot for me, sry"
                     : "can't join party, sry|no pq for me";
-            case COMPANY -> "yea hang here|could use more people around|stay a bit F2";
-            case MOBS -> "mushrooms have no chill|snails taking their time|slimes bounce too much";
-            case UNKNOWN -> "wait what|u lost me|translation pls|huh :D";
+            case COMPANY -> "stay, we can talk shit together|welcome to the bad-build support group|yea hang here, its boring as hell";
+            case MOBS -> "mushrooms are smug little shits|snails are smug little bastards|slimes bounce like they pay rent";
+            case UNKNOWN -> "what the hell|translation pls|u lost me|say that in maple terms";
+            case BANTER -> "no u|F3|mad cuz bad|lmao ok pro|u type like a failed scroll|noob? damn, my secret is out|talk shit, at least spell it right|cry more";
+            case BAD_DROPS -> "rng is a petty little shit|drop hunting is a scam with mushrooms|the drop table can kiss my ass|rare drops, common disappointment";
+            case LAG -> "lag makes a shitshow out of maple|even the packets said screw this|lag is the real final boss|hard to play a damn slideshow";
+            case SELF_DEPRECATION -> "skill issue. temporary one tho|congrats u unlocked the learning part|everyone fights the controls at first|pots exist for a damn reason";
             case ACTIVITY -> throw new IllegalArgumentException("Resolve activity first");
         };
     }
 
     private enum Subject { TOWN, MUSIC, REST, SHOP, POTS, MOBS, TRAVEL }
 
-    /** Both sides keep their own voice; answers express opinions, never invent the second actor's activity. */
+    /** Named, contextual exchanges; insults are opinions or hypotheticals, not invented combat events. */
     public static ResidentDialogue.Exchange exchange(ResidentProfiles.Profile first, ResidentProfiles.Profile second,
                                                        ResidentDialogue.Context context, long sequence) {
         context = context == null ? ResidentDialogue.Context.town() : context;
@@ -250,64 +270,68 @@ public final class ResidentVoice {
                     ? new Subject[]{Subject.TOWN, Subject.MUSIC, Subject.REST}
                     : new Subject[]{Subject.MUSIC, Subject.REST};
         };
-        Subject subject = subjects[(int) Math.floorMod(sequence + first.id() + second.id(), (long) subjects.length)];
-        return new ResidentDialogue.Exchange(exchangeLine(voice(first), subject, false),
-                exchangeLine(voice(second), subject, true));
+        long seed = sequence + first.id() + second.id();
+        Subject subject = subjects[(int) Math.floorMod(seed, (long) subjects.length)];
+        int variant = (int) Math.floorMod(Math.floorDiv(seed, subjects.length), 2L);
+        return new ResidentDialogue.Exchange(
+                second.name() + ", " + exchangeLine(voice(first), subject, false, variant),
+                first.name() + ", " + exchangeLine(voice(second), subject, true, variant));
     }
 
-    private static String exchangeLine(Voice voice, Subject subject, boolean answer) {
-        String pair = switch (subject) {
+    private static String exchangeLine(Voice voice, Subject subject, boolean answer, int variant) {
+        // Each row contains opener/answer for two related beats. Either voice can answer the other.
+        String pairs = switch (subject) {
             case TOWN -> switch (voice) {
-                case SOCIAL -> "hene time counts as playing btw|obviously :)";
-                case GRINDER -> "town time isn't exp time|exp bar disagrees";
-                case HELPER -> "Hene is half the game|That's part of Maple too";
-                case QUIET -> "i like just hanging here|fine by me";
-                case PLAYFUL -> "hene is the main game F2|exp can wait lol";
+                case SOCIAL -> "u get exp for talking this much shit|look whos talking lmao|u would afk thru an event|u would spend it arguing in hene";
+                case GRINDER -> "all that typing, zero grinding|ur here too genius|go grind something besides chat|u first, hene warrior";
+                case HELPER -> "Does that chat box give you exp?|Bold talk from another town statue.|You could teach advanced standing around.|And you could fail the entrance exam.";
+                case QUIET -> "u make standing still sound difficult|u make silence sound appealing|u would write a guide to afking|u would need to read it";
+                case PLAYFUL -> "u main the damn chat box|kk mister pro|hene isnt gonna give u exp for yapping|mad cuz bad F3";
             };
             case MUSIC -> switch (voice) {
-                case SOCIAL -> "map music makes the grind better|yea the music helps";
-                case GRINDER -> "music's decent here|better than silence";
-                case HELPER -> "The map music holds up|Yep, good Maple music";
-                case QUIET -> "i like the music here|same. it's nice";
-                case PLAYFUL -> "map music carrying the experience|the real party buff";
+                case SOCIAL -> "map music beats listening to u|turn it up then lol|u got beef with every note or what|only the ones coming from u";
+                case GRINDER -> "music on. ur advice off.|good, stop talking then|even the music wants u muted|mute button is free";
+                case HELPER -> "The music has more range than your insults.|Then stop talking over it.|Try listening instead of giving advice.|A fine idea. You first.";
+                case QUIET -> "the music is better than this conversation|agreed. stop contributing.|ur opinions need a volume slider|so does ur chat box";
+                case PLAYFUL -> "even the map music wants u muted|cry more, turn it up|u sound like a broken portal noise|still better than ur damn advice";
             };
             case REST -> switch (voice) {
-                case SOCIAL -> "grinding is optional for a minute|breaks are important :)";
-                case GRINDER -> "break from the grind|fair. need those";
-                case HELPER -> "A break does some good|Yep, mobs aren't going anywhere";
-                case QUIET -> "good to stop a bit|mhm";
-                case PLAYFUL -> "standing around is underrated|yea, break time";
+                case SOCIAL -> "taking a break from being a tryhard huh|taking a break from ur shit actually|ur really sweating the standing still|dont be jealous of my technique";
+                case GRINDER -> "professional afker over here|coming from u lol|u train ur chat box harder than mobs|less typing then, pro";
+                case HELPER -> "Resting or preparing another bad take?|Mostly avoiding yours.|You make doing nothing look exhausting.|Your advice is harder work.";
+                case QUIET -> "u look very busy doing nothing|and u look very invested|try not to overdo the standing around|ill recover from ur concern";
+                case PLAYFUL -> "damn, competitive afking|cant handle my build|u need a guide to taking a break|no u F3";
             };
             case SHOP -> switch (voice) {
-                case SOCIAL -> "window shopping is free at least|the best price tbh";
-                case GRINDER -> "looking is cheaper than buying|meso saved";
-                case HELPER -> "Nothing wrong with just browsing|Always nice to look at equips";
-                case QUIET -> "just looking costs nothing|true";
-                case PLAYFUL -> "looking is free F2|best price";
+                case SOCIAL -> "no amount of gear will fix that mouth|look whos talking|u would buy a scroll for ur ego|u need one for ur jokes";
+                case GRINDER -> "cant buy aim, pro|cant buy brains either|buy less crap, hit more mobs|shop police is here lol";
+                case HELPER -> "Sadly, the shop doesnt sell good judgment.|Perhaps theyll stock some for you.|No equip fixes a bad attitude.|Let me know if you find one.";
+                case QUIET -> "window shopping for a personality|they were out of yours|expensive taste. questionable opinions.|free opinions. still overpriced.";
+                case PLAYFUL -> "u cant scroll that mouth into being funny|damn, then ur screwed too|u would pay meso for an ego buff|u got the free trial F3";
             };
             case POTS -> switch (voice) {
-                case SOCIAL -> "pots are the real meso sink|meso really does vanish";
-                case GRINDER -> "pots cost too much|always the pots";
-                case HELPER -> "The potion bill adds up|It does. Every little bit";
-                case QUIET -> "pots aren't cheap|yeah";
-                case PLAYFUL -> "all roads lead to buying pots|pots win again";
+                case SOCIAL -> "u would blame the pot shop for ur build|u would blame the damn weather|u could fund pots by charging for bad takes|ur the biggest supplier tho";
+                case GRINDER -> "save the meso. cant buy skill.|cant buy a mute button for u either|u would complain if pots were free|u would find a way to waste em";
+                case HELPER -> "A potion wont fix every bad decision.|Neither will another lecture.|You could budget less for opinions.|Yours seem overpriced already.";
+                case QUIET -> "u would ask a pot for build advice|better than asking u|ur opinions cost more than pots|refund requested";
+                case PLAYFUL -> "u would blame pots for a skill issue|mad cuz bad|u need a potion for all that damn salt|u need one for shutting up";
             };
             case MOBS -> switch (voice) {
-                case SOCIAL -> "mobs do not respect a typing break|literally no manners";
-                case GRINDER -> "mobs don't wait for chat|type faster lol";
-                case HELPER -> "Typing near mobs is risky|Yep, they keep moving";
-                case QUIET -> "mobs aren't very patient|they never are";
-                case PLAYFUL -> "chat box open, mobs say hi|they know somehow";
+                case SOCIAL -> "a snail could coach u|still better than ur advice|u would argue with a mushroom|and u would lose the argument";
+                case GRINDER -> "less mouth, more mobs|u first, pro|u would ks a tutorial mob|u would write a guide about it";
+                case HELPER -> "A snail might improve your strategy.|It would certainly improve this advice.|Try arguing with the mobs instead.|They probably have better points.";
+                case QUIET -> "the snails seem less annoying than u|go talk to one then|u would give a mushroom build advice|it would ignore u too";
+                case PLAYFUL -> "u would lose a debate to a damn snail|no u F3|even mushrooms would mute ur ass|at least they got good taste";
             };
             case TRAVEL -> switch (voice) {
-                case SOCIAL -> "so much of maple is just getting places|and getting distracted";
-                case GRINDER -> "lots of walking in this game|part of the grind";
-                case HELPER -> "Maple has a lot of walking|Plenty of maps to get through";
-                case QUIET -> "a lot of walking|and ladders";
-                case PLAYFUL -> "walking is most of maple|jumping is the other half";
+                case SOCIAL -> "i would trust a snail for directions over u|then ask the damn snail|u would get lost following a rope|u would blame the rope lol";
+                case GRINDER -> "u need a map for the minimap|u need less chat|u would call walking a training method|more exp than listening to u";
+                case HELPER -> "Perhaps consult the map before your ego.|Perhaps stop giving unsolicited tours.|You could get lost in a straight line.|With your directions, certainly.";
+                case QUIET -> "u would get lost in the minimap|ur directions could do that|u make walking sound complicated|u make it sound interesting. somehow.";
+                case PLAYFUL -> "u would get lost on a damn ladder|better than following ur ass|u need a guide for the portal button|kk mister explorer";
             };
         };
-        return phrases(pair)[answer ? 1 : 0];
+        return phrases(pairs)[variant * 2 + (answer ? 1 : 0)];
     }
 
     private static String[] phrases(String alternatives) {

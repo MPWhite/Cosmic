@@ -142,6 +142,61 @@ class ResidentChatInputTest {
         assertEquals(LEVEL, parse("ＬＶＬ？").intent());
     }
 
+    @Test
+    void mapleTrashTalkKeepsItsMeaningWhenTheSpeakerAddsLaughterOrAnAddress() {
+        for (String message : List.of("noob", "nub lol", "n00b lmao", "ur trash lol", "you suck", "ez",
+                "git gud", "roast me", "MapleMia, ur damage is trash", "ur weak", "youre weak", "says you", "no u", "stfu",
+                "ur fucking trash", "you fucking suck lol", "fuck you lol")) {
+            assertEquals(BANTER, parse(message).intent(), message);
+            assertFalse(parse(message).selfDeprecating(), message);
+        }
+    }
+
+    @Test
+    void selfDeprecationAndGameFrustrationDoNotTriggerARetaliatoryComeback() {
+        for (String message : List.of("im a noob", "i suck lol", "I'm a fucking n00b", "i am such a nub",
+                "im so bad lmao", "my damage is trash", "we're noobs")) {
+            assertEquals(COMPLAINT, parse(message).intent(), message);
+            assertTrue(parse(message).selfDeprecating(), message);
+        }
+        for (String message : List.of("this grind is shit", "pots cost too damn much", "drops are shit",
+                "these drops suck lol", "fucking lag", "rng hates me", "fuck this grind", "wtf", "bullshit lol")) {
+            assertEquals(COMPLAINT, parse(message).intent(), message);
+            assertFalse(parse(message).selfDeprecating(), message);
+        }
+    }
+
+    @Test
+    void swearingDoesNotBreakMovementNegationOrTurnAQuestionIntoAnOrder() {
+        assertEquals(FOLLOW, parse("fucking follow me").intent());
+        assertEquals(FOLLOW, parse("follow me you noob lol").intent());
+        assertEquals(FOLLOW, parse("don't fucking stop following me").intent());
+        assertEquals(STAY, parse("don't fucking follow me").intent());
+        assertEquals(STAY, parse("actually fucking stay here").intent());
+        assertEquals(STAY, parse("stop following me, asshole").intent());
+        assertEquals(MAP_COURTESY, parse("cc pls you noob").intent());
+        assertNotEquals(FOLLOW, parse("why are you fucking following me").intent());
+        assertNotEquals(STAY, parse("don't fucking stop").intent());
+        assertEquals(ACK, parse("fuck yeah").intent());
+        assertEquals(ACK, parse("hell yeah").intent());
+        assertNotEquals(ACK, parse("hell no").intent());
+        assertEquals(GRATS, parse("holy shit grats").intent());
+        assertEquals(COMPLIMENT, parse("nice fucking hat").intent());
+    }
+
+    @Test
+    void publicAdsAndWholeWordBoundariesRemainIntactAroundTrashTalk() {
+        assertEquals(BUY, parse("wtb trash scrolls").intent());
+        assertEquals(SELL, parse("S> shit gear").intent());
+        assertEquals(PARTY, parse("lfg noobs").intent());
+        assertEquals(PARTY, parse("lfm kpq git gud").intent());
+        assertEquals(PARTY, parse("recruiting noobs for lpq").intent());
+        assertEquals(UNKNOWN, parse("my nickname is noobslayer").intent());
+        assertEquals(UNKNOWN, parse("that trashcan is decorative").intent());
+        assertEquals(MONSTERS, parse("mushrooms have little hats").intent());
+        assertFalse(parse("the assassin has a skill book").has("ass", "kill"));
+    }
+
     private static ResidentChatInput parse(String text) {
         return ResidentChatInput.parse(text, "MapleMia");
     }

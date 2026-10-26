@@ -137,6 +137,8 @@ public final class ResidentDialogue {
             case WELCOME_BACK -> say(resident, playerId, sequence, Topic.RETURN, context);
             case THANKS, GRATS -> say(resident, playerId, sequence, Topic.THANKS, context);
             case ACK, DISMISS -> say(resident, playerId, sequence, Topic.ACK, context);
+            case BANTER -> say(resident, playerId, sequence, Topic.BANTER, context);
+            case COMPLAINT -> say(resident, playerId, sequence, complaintTopic(input), context);
             case LAUGH -> input.has("fell", "fall", "jump")
                     ? pick(resident, playerId, sequence, "lol that jump", "F4", "oof, try the rope")
                     : say(resident, playerId, sequence, Topic.LAUGH, context);
@@ -152,8 +154,8 @@ public final class ResidentDialogue {
             case COMPLIMENT -> input.has("hat") && !resident.equipment().containsKey(1)
                     ? "my hair? ty lol" : pick(resident, playerId, sequence, "ty :)", "tyty", "thx");
             case PROGRESS -> input.text().matches(".*\\b9[5-9]\\b.*")
-                    ? pick(resident, playerId, sequence, "so close", "almost there", "one more mob maybe")
-                    : pick(resident, playerId, sequence, "gl with the grind", "keep going :)");
+                    ? pick(resident, playerId, sequence, "don't die now lmao", "last 1% takes a year", "one more mob. allegedly")
+                    : pick(resident, playerId, sequence, "exp bar moves when it feels like it", "back to the mushroom mines");
             case LOCATION -> {
                 if (input.has("train", "training", "level", "lvl", "grind")) {
                     turn.askedLevel = true;
@@ -194,9 +196,6 @@ public final class ResidentDialogue {
                     yield resident.companion() ? "can't accept party invites. can still run with u"
                             : "can't accept party invites";
                 }
-                if (input.has("lag", "laggy", "dc", "dced")) {
-                    yield pick(resident, playerId, sequence, "rip", "oof", "F4");
-                }
                 yield say(resident, playerId, sequence, Topic.UNKNOWN, context);
             }
         };
@@ -226,8 +225,7 @@ public final class ResidentDialogue {
     }
 
     private static boolean acceptsOffer(Turn turn, ResidentChatInput input) {
-        return turn.offeredFollow && input.intent() == ResidentChatInput.Intent.ACK
-                && input.text().matches("(?:yes|ye|yea|yeah|sure|ok|okay|kk|yep|yup|please)");
+        return turn.offeredFollow && input.intent() == ResidentChatInput.Intent.ACK;
     }
 
     static boolean continuesConversation(String message) {
@@ -243,7 +241,7 @@ public final class ResidentDialogue {
         }
         return switch (input.intent()) {
             case BUY, SELL -> false;
-            case PARTY -> !input.has("lfg", "lfp", "recruiting");
+            case PARTY -> !input.has("lfg", "lfp", "lfm", "recruiting");
             default -> true;
         };
     }
@@ -318,13 +316,26 @@ public final class ResidentDialogue {
             Context context) {
         if (input.has("snail", "snails")) {
             return pick(resident, playerId, sequence,
-                    "snails just doing their thing", "snails everywhere lol", "little blue guys");
+                    "snails got more patience than me", "imagine losing a race to a snail", "snail population owes us an apology");
         }
         if (input.has("slime", "slimes")) {
             return pick(resident, playerId, sequence,
-                    "the squish sound tho", "slimes are cute", "green blobs lol");
+                    "slimes are just angry toothpaste", "that squish sound is so damn gross", "green little bastards");
         }
         return say(resident, playerId, sequence, Topic.MOBS, context);
+    }
+
+    private static Topic complaintTopic(ResidentChatInput input) {
+        if (input.selfDeprecating()) {
+            return Topic.SELF_DEPRECATION;
+        }
+        if (input.has("lag", "laggy", "lagging", "dc", "dced", "disconnect", "disconnected")) {
+            return Topic.LAG;
+        }
+        if (input.has("drop", "drops", "droprate", "loot", "rng", "scroll", "scrolls", "scrolling", "scrolled")) {
+            return Topic.BAD_DROPS;
+        }
+        return Topic.COMPLAINT;
     }
 
     private static String topic(ResidentChatInput input) {
@@ -345,6 +356,8 @@ public final class ResidentDialogue {
             case PARTY -> "party quests";
             case BUY, SELL, TRADE -> "shopping";
             case COMPANY -> "hanging out";
+            case BANTER -> "talking shit";
+            case COMPLAINT -> "the grind";
             default -> "";
         };
     }
