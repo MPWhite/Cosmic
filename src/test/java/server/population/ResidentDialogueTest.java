@@ -87,7 +87,7 @@ class ResidentDialogueTest {
 
         var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
         assertTrue(dialogue.reply(ResidentProfiles.all().getFirst(), 1, "Guest", "join my party")
-                .contains("keeping to town"));
+                .contains("can't fight"));
         assertFalse(dialogue.reply(ResidentProfiles.all().get(3), 1, "Guest", "join my party")
                 .contains("follow me"));
         assertTrue(dialogue.reply(ResidentProfiles.all().get(3), 1, "Guest", "follow me")

@@ -4,6 +4,8 @@ import client.Character;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import server.maps.MapleMap;
+import server.maps.Portal;
+import server.population.navigation.CompanionNavigation;
 import tools.PacketCreator;
 
 import java.awt.Point;
@@ -17,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -36,6 +39,7 @@ public final class TownPopulation {
     };
 
     private final Map<MapleMap, Scene> scenes = new ConcurrentHashMap<>();
+    private final Map<Integer, CompanionTravel> journeys = new ConcurrentHashMap<>();
     private final ScheduledExecutorService simulation = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "town-residents");
         thread.setDaemon(true);
@@ -85,7 +89,7 @@ public final class TownPopulation {
     }
 
     public static void onEnter(Character player) {
-        if (!ENABLED || player.getMapId() != HENESYS) {
+        if (!ENABLED) {
             return;
         }
         TownPopulation population = Holder.INSTANCE;
@@ -116,7 +120,7 @@ public final class TownPopulation {
     }
 
     public static void onLeave(Character player) {
-        if (!ENABLED || player.getMapId() != HENESYS) {
+        if (!ENABLED) {
             return;
         }
         Scene scene = Holder.INSTANCE.scenes.get(player.getMap());
@@ -125,14 +129,98 @@ public final class TownPopulation {
                 scene.visits.remove(player.getId());
                 scene.lastReply.remove(player.getId());
                 scene.lastPartner.remove(player.getId());
-                scene.followers.entrySet().removeIf(entry -> {
-                    if (entry.getValue() == player.getId()) {
-                        scene.byId(entry.getKey()).clearFollowTarget();
-                        return true;
-                    }
-                    return false;
-                });
+
             });
+        }
+    }
+
+    public static void onPortalCrossed(Character player, MapleMap source, MapleMap destination, Portal portal, Point arrival) {
+        if (!ENABLED) {
+            return;
+        }
+        Point landing = new Point(arrival);
+        TownPopulation population = Holder.INSTANCE;
+        population.simulation.execute(() -> {
+            CompanionTravel journey = population.journeys.get(player.getId());
+            if (journey == null) {
+                return;
+            }
+            if (!journey.cross(source, destination, portal, landing)) {
+                journey.returnHome();
+                population.journeys.remove(player.getId(), journey);
+                player.dropMessage(5, journey.resident.getName() + " headed back to Henesys. You can meet again there.");
+            }
+        });
+    }
+
+    public static void companionStatus(Character player, boolean dismiss) {
+        if (!ENABLED) {
+            return;
+        }
+        TownPopulation population = Holder.INSTANCE;
+        population.simulation.execute(() -> {
+            CompanionTravel journey = population.journeys.get(player.getId());
+            if (journey == null) {
+                player.dropMessage(5, "Meet MapleMia, PipArcher or Juniper in Henesys and ask them to follow you.");
+                return;
+            }
+            if (dismiss) {
+                journey.returnHome();
+                population.journeys.remove(player.getId(), journey);
+                player.dropMessage(5, journey.resident.getName() + " headed home. See you in Henesys!");
+            } else {
+                String location = journey.resident.getMap().getMapName();
+                player.dropMessage(5, journey.resident.getName() + (journey.isFollowing() ? " is following you" : " is waiting")
+                        + " in " + location + ". Use @companion dismiss to send them home.");
+            }
+        });
+    }
+
+    private void transferResident(TownResident resident, MapleMap destination, Point arrival) {
+        // Project the destination before removing anything from the source map.
+        CompanionNavigation navigation = CompanionNavigation.forMap(destination);
+        Point safe = navigation.groundBelow(new Point(arrival.x, arrival.y - 8), 600)
+                .or(() -> navigation.project(arrival, 160)).orElseThrow(() -> new IllegalArgumentException("No landing near portal " + arrival)).position();
+        Scene next = scenes.computeIfAbsent(destination, Scene::new);
+        synchronized (resident) {
+            MapleMap source = resident.getMap();
+            Scene previous = scenes.get(source);
+            Point oldPosition = resident.getPosition();
+            Point rollbackPosition = CompanionNavigation.forMap(source).groundBelow(oldPosition, 1200)
+                    .or(() -> CompanionNavigation.forMap(source).project(oldPosition, 200)).orElseThrow(
+                            () -> new IllegalArgumentException("No return landing near " + oldPosition)).position();
+            source.broadcastMessage(ResidentPackets.remove(resident.getId()));
+            source.removeMapObject(resident.getObjectId());
+            if (previous != null) {
+                previous.residents.remove(resident);
+                previous.speechUntil.remove(resident.getId());
+                previous.lastPartner.values().removeIf(id -> id == resident.getId());
+            }
+            try {
+                resident.relocateTo(destination, safe);
+                destination.addMapObject(resident);
+                next.residents.add(resident);
+                for (Character observer : destination.getAllPlayers()) {
+                    next.visits.computeIfAbsent(observer.getId(), id -> ++next.visitSequence);
+                }
+                destination.broadcastMessage(ResidentPackets.spawn(resident));
+                log.info("Companion {} traveled from {} to {}", resident.getName(), source.getId(), destination.getId());
+            } catch (RuntimeException failure) {
+                if (destination.getMapObject(resident.getObjectId()) == resident) {
+                    destination.removeMapObject(resident.getObjectId());
+                }
+                next.residents.remove(resident);
+                resident.relocateTo(source, rollbackPosition);
+                source.addMapObject(resident);
+                if (previous != null) {
+                    previous.residents.add(resident);
+                }
+                source.broadcastMessage(ResidentPackets.spawn(resident));
+                throw failure;
+            }
+            if (previous != null && previous.residents.isEmpty() && source.getId() != HENESYS) {
+                scenes.remove(source, previous);
+            }
         }
     }
 
@@ -141,15 +229,12 @@ public final class TownPopulation {
             player.dropMessage(5, "Town residents are disabled on this server.");
             return;
         }
-        if (player.getMapId() != HENESYS) {
-            player.dropMessage(5, "The residents are in Henesys. Visit its market street to meet MapleMia, PipArcher and Juniper.");
-            return;
-        }
         Scene scene = Holder.INSTANCE.scenes.get(player.getMap());
-        if (scene == null) {
+        if (scene == null || scene.residents.isEmpty()) {
+            player.dropMessage(5, "Meet companions in Henesys, then ask one to follow you into the fields.");
             return;
         }
-        player.dropMessage(5, "Henesys neighbors: " + scene.residents.size() + " town residents. Companions: MapleMia, PipArcher, Juniper.");
+        player.dropMessage(5, "Neighbors here: " + scene.residents.size() + " residents. Companions: MapleMia, PipArcher, Juniper.");
         String names = scene.residents.stream().filter(r -> nearby(r, player)).map(TownResident::getName)
                 .reduce((a, b) -> a + ", " + b).orElse("Walk toward the market to meet someone.");
         player.dropMessage(5, "Nearby: " + names);
@@ -160,7 +245,7 @@ public final class TownPopulation {
     }
 
     public static void onChat(Character player, String text) {
-        if (!ENABLED || player.getMapId() != HENESYS || text.isBlank()) {
+        if (!ENABLED || text.isBlank()) {
             return;
         }
         Scene scene = Holder.INSTANCE.scenes.get(player.getMap());
@@ -183,8 +268,8 @@ public final class TownPopulation {
     }
 
     public static void talk(Character player, String name, String text, boolean echo) {
-        if (!ENABLED || player.getMapId() != HENESYS) {
-            player.dropMessage(5, "Visit Henesys to talk to its residents.");
+        if (!ENABLED) {
+            player.dropMessage(5, "Town residents are disabled on this server.");
             return;
         }
         Scene scene = Holder.INSTANCE.scenes.get(player.getMap());
@@ -201,7 +286,7 @@ public final class TownPopulation {
 
     /** Consume a normal remote-character click when its network ID belongs to a resident. */
     public static boolean interact(Character player, int networkId) {
-        if (!ENABLED || player.getMapId() != HENESYS) {
+        if (!ENABLED) {
             return false;
         }
         TownPopulation population = Holder.INSTANCE;
@@ -238,7 +323,8 @@ public final class TownPopulation {
     }
 
     private void respond(Scene scene, Character player, TownResident resident, String message, boolean echo) {
-        if (player.getMap() != scene.map || !player.isLoggedin() || scene.map.isMuted()) {
+        if (resident == null || resident.getMap() != scene.map || !scene.residents.contains(resident)
+                || player.getMap() != scene.map || !player.isLoggedin() || scene.map.isMuted()) {
             return;
         }
         if (!nearby(resident, player)) {
@@ -277,28 +363,28 @@ public final class TownPopulation {
         String contextualReply = dialogue.reply(resident.getProfile(), player.getId(), player.getName(), text);
         String reply;
         if (intent == ResidentDialogue.Intent.FOLLOW) {
+            CompanionTravel owner = journeys.values().stream().filter(j -> j.resident == resident).findFirst().orElse(null);
             if (!resident.getProfile().companion()) {
                 reply = "I'm staying around here today. MapleMia, PipArcher or Juniper might join you for a walk.";
-            } else if (scene.followers.containsKey(resident.getId()) && scene.followers.get(resident.getId()) != player.getId()) {
+            } else if (owner != null && owner.leader != player) {
                 reply = "I'm walking with someone right now. Catch me when we're back!";
             } else {
-                scene.followers.entrySet().removeIf(entry -> {
-                    if (entry.getValue() == player.getId()) {
-                        scene.byId(entry.getKey()).clearFollowTarget();
-                        return true;
-                    }
-                    return false;
-                });
-                scene.followers.put(resident.getId(), player.getId());
-                reply = "Sure, " + player.getName() + ". I'll walk with you along this street. Say 'stay' when you want to stop.";
+                CompanionTravel previous = journeys.get(player.getId());
+                if (previous != null && previous.resident != resident) {
+                    previous.returnHome();
+                    journeys.remove(player.getId());
+                }
+                CompanionTravel journey = journeys.computeIfAbsent(player.getId(), id -> new CompanionTravel(player, resident, this::transferResident));
+                journey.follow();
+                reply = "Let's explore, " + player.getName() + ". I'll follow you through the portals. Say 'stay' for a break.";
             }
         } else if (intent == ResidentDialogue.Intent.STOP_FOLLOWING) {
-            if (scene.followers.getOrDefault(resident.getId(), -1) == player.getId()) {
-                scene.followers.remove(resident.getId());
-                resident.clearFollowTarget();
-                reply = "I'll be around here, " + player.getName() + ". Come say hello again.";
+            CompanionTravel journey = journeys.get(player.getId());
+            if (journey != null && journey.resident == resident) {
+                journey.stay();
+                reply = "I'll wait here, " + player.getName() + ". Say 'follow me' when you're ready. I'll head home if you leave.";
             } else {
-                reply = "I'm just enjoying the town. Come find me whenever you'd like to chat.";
+                reply = "I'm just enjoying the view. Come find me whenever you'd like to chat.";
             }
         } else {
             reply = contextualReply;
@@ -306,7 +392,8 @@ public final class TownPopulation {
         resident.faceToward(player.getPosition());
         String answer = reply;
         simulation.schedule(() -> {
-            if (scene.isCurrentVisit(player, visit) && nearby(resident, player) && !scene.map.isMuted()) {
+            if (resident.getMap() == scene.map && scene.residents.contains(resident)
+                    && scene.isCurrentVisit(player, visit) && nearby(resident, player) && !scene.map.isMuted()) {
                 resident.faceToward(player.getPosition());
                 resident.say(answer);
                 scene.lastSpeech = System.currentTimeMillis();
@@ -316,37 +403,39 @@ public final class TownPopulation {
 
     private void tick() {
         long now = System.currentTimeMillis();
+        for (CompanionTravel journey : journeys.values()) {
+            try {
+                if (!journey.tick(now)) {
+                    journeys.remove(journey.leader.getId(), journey);
+                }
+            } catch (RuntimeException failure) {
+                log.error("Companion trip failed for {}", journey.resident.getName(), failure);
+                try {
+                    journey.returnHome();
+                    journeys.remove(journey.leader.getId(), journey);
+                } catch (RuntimeException returnFailure) {
+                    log.error("Could not return companion home; will retry", returnFailure);
+                }
+            }
+        }
         for (Scene scene : scenes.values()) {
             try {
                 List<Character> players = scene.map.getAllPlayers();
                 if (players.isEmpty()) {
-                    // Logout usually calls onLeave. Also retire stale links if a
-                    // disconnect path removed a player before that callback ran.
-                    for (Integer residentId : scene.followers.keySet()) {
-                        scene.byId(residentId).clearFollowTarget();
-                    }
-                    scene.followers.clear();
                     scene.visits.clear();
                     scene.lastReply.clear();
                     scene.lastPartner.clear();
-                    continue;
                 }
                 for (TownResident resident : scene.residents) {
-                    Integer following = scene.followers.get(resident.getId());
-                    if (following != null) {
-                        Character leader = players.stream().filter(p -> p.getId() == following).findFirst().orElse(null);
-                        if (leader == null) {
-                            scene.followers.remove(resident.getId());
-                            resident.clearFollowTarget();
-                        } else {
-                            resident.setFollowTarget(leader.getPosition());
-                        }
+                    // A traveling companion must still reach the exit after its
+                    // leader has left; ordinary residents sleep in empty maps.
+                    if (!players.isEmpty() || journeys.values().stream().anyMatch(j -> j.resident == resident && j.isFollowing())) {
+                        resident.tick(now);
                     }
-                    resident.tick(now);
                 }
                 if (now >= scene.nextAmbient && now - scene.lastSpeech > 10_000 && !scene.map.isMuted()) {
                     scene.nextAmbient = now + 18_000 + (scene.sequence % 5) * 3000;
-                    List<TownResident> audible = scene.residents.stream().filter(r -> players.stream()
+                    List<TownResident> audible = scene.residents.stream().filter(r -> !r.isFollowing()).filter(r -> players.stream()
                             .anyMatch(p -> !p.isHidden() && p.getPosition().distanceSq(r.getPosition()) < 420 * 420)).toList();
                     if (!audible.isEmpty()) {
                         TownResident speaker = audible.get((int) (scene.sequence % audible.size()));
@@ -414,7 +503,6 @@ public final class TownPopulation {
     private static final class Scene {
         final MapleMap map;
         final List<TownResident> residents;
-        final Map<Integer, Integer> followers = new HashMap<>();
         final Map<Integer, Integer> lastPartner = new HashMap<>();
         final Map<Integer, Long> lastReply = new HashMap<>();
         final Map<Integer, Long> visits = new HashMap<>();
@@ -426,8 +514,8 @@ public final class TownPopulation {
 
         Scene(MapleMap map) {
             this.map = map;
-            residents = createResidents(map);
-            log.info("Populated Henesys with {} residents", residents.size());
+            residents = new CopyOnWriteArrayList<>(map.getId() == HENESYS ? createResidents(map) : List.of());
+            log.info("Prepared resident scene {} with {} residents", map.getId(), residents.size());
         }
 
         boolean isCurrentVisit(Character player, Long visit) {
@@ -444,7 +532,7 @@ public final class TownPopulation {
         }
 
         TownResident byId(int id) {
-            return residents.stream().filter(r -> r.getId() == id).findFirst().orElseThrow();
+            return residents.stream().filter(r -> r.getId() == id).findFirst().orElse(null);
         }
 
         TownResident nearest(Point position, boolean companion) {

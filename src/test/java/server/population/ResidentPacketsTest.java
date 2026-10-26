@@ -14,9 +14,27 @@ import java.util.HashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class ResidentPacketsTest {
+    @Test
+    void staleMapPlacementCannotSpawnATransferredCompanionInThePreviousMap() {
+        TownResident resident = resident(ResidentProfiles.all().getFirst());
+        client.Client observer = mock(client.Client.class);
+        client.Character player = mock(client.Character.class);
+        when(observer.getPlayer()).thenReturn(player);
+        when(player.getMap()).thenReturn(mock(MapleMap.class));
+        resident.sendSpawnData(observer);
+        verify(observer, never()).sendPacket(any());
+
+        when(player.getMap()).thenReturn(resident.getMap());
+        resident.sendSpawnData(observer);
+        verify(observer).sendPacket(any());
+    }
+
     @Test
     void browserV83DecoderCanReadTheCompleteRemotePlayerAppearance() {
         var profile = ResidentProfiles.all().getFirst();

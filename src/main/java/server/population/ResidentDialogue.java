@@ -47,9 +47,9 @@ public final class ResidentDialogue {
                 return "I'm staying on my usual route today, " + playerName + ". Mia, Pip, or Juniper might enjoy a walk.";
             }
             return switch (resident.id()) {
-                case 1 -> "A little walk? I'm in, " + playerName + "! Lead the way around town.";
-                case 2 -> "Sure, " + playerName + ". I'll keep you company around town.";
-                case 3 -> "Of course, " + playerName + ". No need to rush. I'll walk with you here.";
+                case 1 -> "A little walk? I'm in, " + playerName + "! Lead the way.";
+                case 2 -> "Sure, " + playerName + ". I'll keep you company on the road.";
+                case 3 -> "Of course, " + playerName + ". No need to rush. I'll walk with you.";
                 default -> "Sure, " + playerName + "! Let's take a walk around Henesys.";
             };
         }
@@ -100,7 +100,7 @@ public final class ResidentDialogue {
         }
         if (contains(text, "party", "join", "boss", "quest")) {
             return resident.companion()
-                    ? "I'm keeping to town for now, " + playerName + ". I can walk with you here, though. Just say 'follow me'."
+                    ? "I can't fight or join your party yet, " + playerName + ". I can explore with you, though. Just say 'follow me'."
                     : "I'm keeping to my town routine today, " + playerName + ". Come tell me about your adventure afterward.";
         }
         if (contains(text, "lonely", "friend", "company", "alone", "sad")) {

@@ -62,14 +62,26 @@ the companions usually gather along the central market street.
 - Say `MapleMia, hello` in normal chat, or use `@talk MapleMia hello`.
 - Talk about training, mushrooms, travel, or company. Ask `remember me` on a later
   visit: residents remember your character and the last topic you discussed.
-- Ask a companion to `follow me` for a walk along connected ground in town, then
-  say `stay` to stop. Following ends when you leave the map.
+- Ask a companion to `follow me` to explore together. They walk, jump, drop down,
+  and climb ladders or ropes using the map's terrain. Ordinary open portals carry
+  the same companion into the next map after they reach the exit.
+- Say `stay` for a break, then `follow me` to resume. Use `@companion` to check
+  their location, or `@companion dismiss` to send them home. Logging out, dying,
+  changing channels, or using an unsupported warp returns them to Henesys.
+- If a route stays blocked, the companion announces a catch-up and reappears on
+  safe ground nearby. This is a timed fallback, not the normal movement path.
 
-This first milestone uses authored, contextual dialogue and needs no AI API key.
-Residents cannot fight, trade, join parties, climb, or follow through portals.
-They do not occupy player slots, control monsters, or keep empty maps active.
-Only human-occupied Henesys maps run their movement simulation; this is a
-20-resident prototype, not a benchmark of thousands of active bots.
+Residents use authored, contextual dialogue and need no AI API key.
+Residents cannot fight, trade, or join parties yet. Scripted, closed, and event
+portals are excluded. Companions do not occupy player slots or control monsters.
+Ambient residents sleep in empty maps; a traveling companion may finish walking
+to a portal after its leader leaves. This remains a 20-resident prototype, not a
+benchmark of thousands of active bots. Following resumes by request after a
+server restart; identities and conversation memories persist.
+
+Navigation uses static footholds, ladders and ropes. Swimming, flight, and moving
+platforms are not yet supported. The Henesys-to-field round trip is covered by
+tests using the actual map geometry as well as a browser gameplay recording.
 
 Relationships are saved every five seconds and on shutdown to
 `.local/population/memories.properties`. Preserve that file to keep memories.
