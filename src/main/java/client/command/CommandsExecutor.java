@@ -341,6 +341,8 @@ public class CommandsExecutor {
         levelCommandsCursor = new Pair<>(new ArrayList<String>(), new ArrayList<String>());
 
         addCommand(new String[]{"help", "commands"}, HelpCommand.class);
+        addCommand("residents", client.command.commands.gm0.ResidentsCommand.class);
+        addCommand("talk", client.command.commands.gm0.TalkCommand.class);
         addCommand("droplimit", DropLimitCommand.class);
         addCommand("time", TimeCommand.class);
         addCommand("credits", StaffCommand.class);

@@ -49,6 +49,9 @@ public final class GeneralChatHandler extends AbstractPacketHandler {
             c.disconnect(true, false);
             return;
         }
+        if (s.isEmpty()) {
+            return;
+        }
         char heading = s.charAt(0);
         if (CommandsExecutor.isCommand(c, s)) {
             CommandsExecutor.getInstance().handle(c, s);
@@ -68,6 +71,9 @@ public final class GeneralChatHandler extends AbstractPacketHandler {
             }
 
             chr.getAutobanManager().spam(7);
+            if (!chr.isHidden()) {
+                server.population.TownPopulation.onChat(chr, s);
+            }
         }
     }
 }

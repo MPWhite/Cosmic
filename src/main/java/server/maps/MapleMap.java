@@ -2448,6 +2448,7 @@ public class MapleMap {
             broadcastSpawnPlayerMapObjectMessage(chr, chr, true);
         }
 
+        server.population.TownPopulation.prepare(this);
         sendObjectPlacement(chr.getClient());
 
         if (isStartingEventMap() && !eventStarted()) {
@@ -2525,6 +2526,7 @@ public class MapleMap {
 
         chr.receivePartyMemberHP();
         announcePlayerDiseases(chr.getClient());
+        server.population.TownPopulation.onEnter(chr);
     }
 
     private static void announcePlayerDiseases(final Client c) {
@@ -2610,6 +2612,7 @@ public class MapleMap {
     }
 
     public void removePlayer(Character chr) {
+        server.population.TownPopulation.onLeave(chr);
         Channel cserv = chr.getClient().getChannelServer();
         chr.unregisterChairBuff();
 
@@ -2862,6 +2865,7 @@ public class MapleMap {
             case PLAYER:
             case HIRED_MERCHANT:
             case PLAYER_NPC:
+            case TOWN_RESIDENT:
             case DRAGON:
             case MIST:
             case KITE:

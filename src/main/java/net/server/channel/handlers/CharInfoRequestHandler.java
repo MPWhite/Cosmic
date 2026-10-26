@@ -34,6 +34,9 @@ public final class CharInfoRequestHandler extends AbstractPacketHandler {
     public final void handlePacket(InPacket p, Client c) {
         p.skip(4);
         int cid = p.readInt();
+        if (server.population.TownPopulation.interact(c.getPlayer(), cid)) {
+            return;
+        }
         MapObject target = c.getPlayer().getMap().getMapObject(cid);
         if (target != null) {
             if (target instanceof Character player) {

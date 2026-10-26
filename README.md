@@ -49,6 +49,37 @@ The project follows the [semantic versioning](https://semver.org/) scheme using 
 * *Major changes* are treated as MAJOR: __1__.2.3 -> __2.0.0__
 
 ## Getting started
+
+### Living Henesys
+
+Henesys now has 20 persistent town identities, with varied appearances, gentle
+walking routines, occasional conversation, and three companions: **MapleMia**,
+**PipArcher**, and **Juniper**. They appear automatically when you visit Henesys;
+the companions usually gather along the central market street.
+
+- Type `@residents` to see nearby names and instructions.
+- Double-click a nearby resident to say hello.
+- Say `MapleMia, hello` in normal chat, or use `@talk MapleMia hello`.
+- Talk about training, mushrooms, travel, or company. Ask `remember me` on a later
+  visit: residents remember your character and the last topic you discussed.
+- Ask a companion to `follow me` for a walk along connected ground in town, then
+  say `stay` to stop. Following ends when you leave the map.
+
+This first milestone uses authored, contextual dialogue and needs no AI API key.
+Residents cannot fight, trade, join parties, climb, or follow through portals.
+They do not occupy player slots, control monsters, or keep empty maps active.
+Only human-occupied Henesys maps run their movement simulation; this is a
+20-resident prototype, not a benchmark of thousands of active bots.
+
+Relationships are saved every five seconds and on shutdown to
+`.local/population/memories.properties`. Preserve that file to keep memories.
+An unreadable file is left intact, with session-only memory and a server error
+log until the file is repaired. JVM properties `cosmic.residents.enabled=false`
+and `cosmic.residents.memory=/path/to/memories.properties` disable residents or
+change the save location. The browser client's Mac setup includes a patch that
+smooths remote-player movement; rerun its setup when installing these changes
+on another machine.
+
 ### macOS quick start (Apple Silicon or Intel)
 
 Install [Homebrew](https://brew.sh), then run from this directory:

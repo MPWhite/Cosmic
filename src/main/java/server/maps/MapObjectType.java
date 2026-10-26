@@ -35,5 +35,6 @@ public enum MapObjectType {
     HIRED_MERCHANT,
     PLAYER_NPC,
     DRAGON,
-    KITE
+    KITE,
+    TOWN_RESIDENT
 }
