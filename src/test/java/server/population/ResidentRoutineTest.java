@@ -16,6 +16,25 @@ import static org.mockito.Mockito.*;
 
 class ResidentRoutineTest {
     @Test
+    void aRequestForSpacePausesHuntingAndEventuallyAllowsItToResume() {
+        var placement = ResidentRoster.forMap(ResidentRoster.TRAINING_GROUND).getFirst();
+        TownResident actor = actor(map(), placement);
+        ResidentCombat combat = mock(ResidentCombat.class);
+        ResidentRoutine routine = new ResidentRoutine(actor, (r, m, p) -> fail(), combat);
+        routine.tick(1_000);
+        routine.tick(15_000);
+        routine.makeRoom(135_000);
+        routine.tick(20_000);
+        routine.tick(134_999);
+        assertEquals(ResidentDialogue.Activity.RESTING, routine.context(false).activity());
+        verify(combat, never()).tick(anyLong(), any());
+        routine.tick(135_000);
+        routine.tick(135_050);
+        verify(combat).tick(135_050, null);
+        verify(actor, atLeastOnce()).waitHere();
+    }
+
+    @Test
     void huntersStartAtDifferentTimesAndTakeBreaksWithoutAnObserverFollowingThem() {
         Set<Long> starts = new HashSet<>();
         for (ResidentRoster.Placement placement : ResidentRoster.forMap(ResidentRoster.TRAINING_GROUND)) {

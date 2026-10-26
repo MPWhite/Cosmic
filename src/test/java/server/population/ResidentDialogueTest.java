@@ -9,9 +9,12 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 class ResidentDialogueTest {
     @TempDir
@@ -74,9 +77,11 @@ class ResidentDialogueTest {
     @Test
     void doesNotTreatHiInsideAnotherWordAsGreeting() {
         var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
-        String response = dialogue.reply(ResidentProfiles.all().getFirst(), 9, "Traveler", "this is interesting");
-        assertFalse(response.startsWith("Hi,"));
-        assertFalse(response.startsWith("Hey,"));
+        var mia = ResidentProfiles.all().getFirst();
+        String response = dialogue.reply(mia, 9, "Traveler", "this is interesting");
+        assertFromTopic(mia, ResidentVoice.Topic.UNKNOWN, response);
+        assertFalse(Arrays.asList(ResidentVoice.lines(mia, ResidentVoice.Topic.HELLO,
+                ResidentDialogue.Context.town())).contains(response));
     }
 
     @Test
@@ -92,8 +97,9 @@ class ResidentDialogueTest {
                 .contains("party"));
         assertFalse(dialogue.reply(ResidentProfiles.all().get(3), 1, "Guest", "join my party")
                 .contains("follow me"));
-        assertTrue(dialogue.reply(ResidentProfiles.all().get(3), 1, "Guest", "follow me")
-                .contains("usual route"));
+        var independent = ResidentProfiles.all().get(3);
+        assertFromTopic(independent, ResidentVoice.Topic.FOLLOW_DECLINE,
+                dialogue.reply(independent, 1, "Guest", "follow me"));
     }
 
     @Test
@@ -110,18 +116,21 @@ class ResidentDialogueTest {
     @Test
     void repeatedShortRepliesVaryWithoutRecitingThePlayersName() {
         var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
-        var mia = ResidentProfiles.all().getFirst();
-        var replies = new HashSet<String>();
-        String previous = "";
-        for (int turn = 0; turn < 8; turn++) {
-            String reply = dialogue.reply(mia, 77, "TestPlayer", "thanks");
-            assertNotEquals(previous, reply);
-            assertTrue(reply.length() < 30);
-            assertFalse(reply.contains("TestPlayer"));
-            replies.add(reply);
-            previous = reply;
+        for (String name : List.of("MapleMia", "PipArcher", "Juniper", "OakWarden", "HazelHop")) {
+            var resident = ResidentProfiles.find(name).orElseThrow();
+            var replies = new HashSet<String>();
+            String previous = "";
+            for (int turn = 0; turn < 12; turn++) {
+                String reply = dialogue.reply(resident, 77, "TestPlayer", "ty");
+                assertNotEquals(previous, reply, name + " repeated an immediate reply");
+                assertTrue(reply.length() < 30);
+                assertFalse(reply.contains("TestPlayer"));
+                assertFromTopic(resident, ResidentVoice.Topic.THANKS, reply);
+                replies.add(reply);
+                previous = reply;
+            }
+            assertTrue(replies.size() >= 3, name + " needs more than two alternating replies");
         }
-        assertTrue(replies.size() >= 3);
     }
 
     @Test
@@ -136,7 +145,147 @@ class ResidentDialogueTest {
         String trade = dialogue.reply(mia, 90, "Guest", "trade me mesos", hunting);
         assertTrue(trade.contains("can't trade") || trade.contains("nothing for sale") || trade.contains("no trades"));
         String quest = dialogue.reply(mia, 90, "Guest", "do my quest", hunting);
-        assertTrue(quest.contains("handle the quest NPCs"));
+        assertTrue(quest.contains("quest npc"));
+        assertTrue(quest.contains("yourself"), "quest interaction must remain the player's action");
+    }
+
+    @Test
+    void shortProfileQuestionsUseTheActualLevelAndSpecificJob() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var pip = ResidentProfiles.find("PipArcher").orElseThrow();
+
+        String level = dialogue.reply(pip, 42, "Guest", "lvl?");
+        assertTrue(level.matches(".*\\b32\\b.*"), level);
+        assertTrue(level.contains("hunter"), "Pip is a hunter, not just the broad archer family");
+        assertEquals("hunter", dialogue.reply(pip, 42, "Guest", "job?"));
+        assertEquals("hunter", dialogue.reply(pip, 42, "Guest", "r u a cleric?"));
+        assertEquals(32, pip.level());
+        assertEquals(310, pip.job());
+    }
+
+    @Test
+    void aNumericAnswerContinuesTheLevelQuestionAndDoesNotLeakBetweenConversations() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var mia = ResidentProfiles.find("MapleMia").orElseThrow();
+        var pip = ResidentProfiles.find("PipArcher").orElseThrow();
+
+        assertTrue(dialogue.reply(mia, 42, "First", "lvl?").endsWith("u?"));
+        assertFromTopic(mia, ResidentVoice.Topic.UNKNOWN, dialogue.reply(mia, 43, "Second", "23"));
+        assertFromTopic(pip, ResidentVoice.Topic.UNKNOWN, dialogue.reply(pip, 42, "First", "23"));
+        String answer = dialogue.reply(mia, 42, "First", "23");
+        assertFalse(Arrays.asList(ResidentVoice.lines(mia, ResidentVoice.Topic.UNKNOWN,
+                ResidentDialogue.Context.town())).contains(answer), "a level answer must not receive 'huh?'");
+        assertFalse(answer.contains("?"), "do not ask the answered question again");
+        assertTrue(dialogue.reply(mia, 42, "First", "lvl?").contains("24"));
+        assertEquals(24, mia.level(), "the player's answer must not alter the resident's profile");
+    }
+
+    @Test
+    void whyContinuesARecentPartyReplyButNotAnotherPlayersOrAnExpiredConversation() {
+        Clock clock = mock(Clock.class);
+        when(clock.millis()).thenReturn(1_000L);
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory(), clock);
+        var mia = ResidentProfiles.find("MapleMia").orElseThrow();
+
+        dialogue.reply(mia, 42, "First", "party?");
+        assertFromTopic(mia, ResidentVoice.Topic.UNKNOWN, dialogue.reply(mia, 43, "Second", "why?"));
+        String explanation = dialogue.reply(mia, 42, "First", "why?");
+        assertTrue(explanation.contains("can't accept party invites"));
+        assertFalse(explanation.contains("bot"), "a capability follow-up does not need an identity lecture");
+
+        dialogue.reply(mia, 42, "First", "party?");
+        when(clock.millis()).thenReturn(91_001L);
+        assertFromTopic(mia, ResidentVoice.Topic.UNKNOWN, dialogue.reply(mia, 42, "First", "why?"));
+    }
+
+    @Test
+    void followOffersRequireAnUnexpiredAffirmativeFromTheSamePlayerForTheSameResident() {
+        Clock clock = mock(Clock.class);
+        when(clock.millis()).thenReturn(1_000L);
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory(), clock);
+        var mia = ResidentProfiles.find("MapleMia").orElseThrow();
+        var pip = ResidentProfiles.find("PipArcher").orElseThrow();
+
+        dialogue.reply(mia, 42, "First", "want to hunt?");
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(mia, 43, "yes"));
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(pip, 42, "yes"));
+        assertEquals(ResidentDialogue.Intent.FOLLOW, dialogue.intentFor(mia, 42, "yes"));
+        assertEquals(ResidentDialogue.Intent.FOLLOW, dialogue.intentFor(mia, 42, "yes"),
+                "routing an answer must not consume it before the reply handles it");
+        assertFromTopic(mia, ResidentVoice.Topic.FOLLOW_ACCEPT, dialogue.reply(mia, 42, "First", "yes"));
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(mia, 42, "yes"));
+
+        dialogue.reply(mia, 42, "First", "want to hunt?");
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(mia, 42, "nah"));
+        assertFromTopic(mia, ResidentVoice.Topic.ACK, dialogue.reply(mia, 42, "First", "nah"));
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(mia, 42, "yes"));
+
+        dialogue.reply(mia, 42, "First", "want to hunt?");
+        when(clock.millis()).thenReturn(91_001L);
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(mia, 42, "yes"));
+        assertFromTopic(mia, ResidentVoice.Topic.ACK, dialogue.reply(mia, 42, "First", "yes"));
+        var independent = ResidentProfiles.find("TheoBoots").orElseThrow();
+        dialogue.reply(independent, 42, "First", "want to hunt?");
+        assertEquals(ResidentDialogue.Intent.TALK, dialogue.intentFor(independent, 42, "yes"));
+    }
+
+    @Test
+    void trainingAdviceUsesTheAnsweredLevelInsteadOfGenericAcknowledgement() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var mia = ResidentProfiles.find("MapleMia").orElseThrow();
+        assertTrue(dialogue.reply(mia, 42, "Guest", "where should i train?").contains("lvl"));
+        String beginnerAdvice = dialogue.reply(mia, 42, "Guest", "15");
+        assertTrue(beginnerAdvice.contains("mushrooms"));
+
+        assertTrue(dialogue.reply(mia, 42, "Guest", "help me train").contains("lvl"));
+        String advancedAdvice = dialogue.reply(mia, 42, "Guest", "99");
+        assertTrue(advancedAdvice.contains("low"), "nearby beginner mobs are unsuitable for the stated level");
+        assertNotEquals(beginnerAdvice, advancedAdvice);
+        assertFalse(advancedAdvice.contains("mushrooms"));
+        assertEquals(24, mia.level());
+    }
+
+    @Test
+    void npcDirectionsDoNotTurnIntoBotIdentityAnswers() {
+        var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
+        var mia = ResidentProfiles.find("MapleMia").orElseThrow();
+
+        String directions = dialogue.reply(mia, 42, "Guest", "where is the potion shop npc?");
+        assertTrue(directions.contains("shop"));
+        assertFalse(directions.contains("bot"));
+        assertFalse(directions.contains("server-run"));
+        String whichNpc = dialogue.reply(mia, 42, "Guest", "where is the npc?");
+        assertTrue(whichNpc.contains("npc"));
+        assertFalse(whichNpc.contains("bot"));
+        assertTrue(dialogue.reply(mia, 42, "Guest", "are you an npc?").contains("server-run bot"));
+    }
+
+    @Test
+    void memoriesKeepSnailsAndSlimesDistinctAcrossConversationsAndRestart() throws IOException {
+        Path file = temporary.resolve("mob-topics.properties");
+        var store = new ResidentMemoryStore(file);
+        var dialogue = new ResidentDialogue(store);
+        var mia = ResidentProfiles.find("MapleMia").orElseThrow();
+
+        dialogue.reply(mia, 42, "SnailFan", "those snails are cute");
+        dialogue.reply(mia, 43, "SlimeFan", "slimes are cute too");
+        dialogue.reply(mia, 42, "SnailFan", "heyyy");
+        store.flush();
+        var reloaded = new ResidentMemoryStore(file);
+        var afterRestart = new ResidentDialogue(reloaded);
+
+        String snails = afterRestart.reply(mia, 42, "SnailFan", "remember me?");
+        String slimes = afterRestart.reply(mia, 43, "SlimeFan", "remember me?");
+        assertAll(
+                () -> assertTrue(snails.contains("snails")),
+                () -> assertFalse(snails.contains("slimes")),
+                () -> assertFalse(snails.contains("mushrooms")),
+                () -> assertTrue(slimes.contains("slimes")),
+                () -> assertFalse(slimes.contains("snails")),
+                () -> assertFalse(slimes.contains("mushrooms"))
+        );
+        afterRestart.reply(mia, 42, "SnailFan", "actually slimes now");
+        assertEquals("slimes", reloaded.get(42, mia.id(), "SnailFan").lastTopic());
     }
 
     @Test
@@ -209,6 +358,11 @@ class ResidentDialogueTest {
 
     private Path writeFile(String name, String contents) throws IOException {
         return Files.writeString(temporary.resolve(name), contents);
+    }
+
+    private static void assertFromTopic(ResidentProfiles.Profile resident, ResidentVoice.Topic topic, String reply) {
+        assertTrue(Arrays.asList(ResidentVoice.lines(resident, topic, ResidentDialogue.Context.town())).contains(reply),
+                () -> resident.name() + " answered outside " + topic + ": " + reply);
     }
 
     private static Path asset(String category, int id) {

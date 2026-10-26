@@ -32,6 +32,7 @@ final class ResidentRoutine {
     private long nextReturnAttempt;
     private long nextTrip;
     private long conversationUntil;
+    private long yieldUntil;
     private boolean initialized;
     private boolean suspended;
     private boolean onTrip;
@@ -79,6 +80,17 @@ final class ResidentRoutine {
         combat.stop(); // a typing pause must not leave an old attack waiting to hit seconds later
     }
 
+    void makeRoom(long until) {
+        yieldUntil = Math.max(yieldUntil, until);
+        combat.stop();
+        expireLoot();
+        destination = null;
+        exit = null;
+        resident.waitHere();
+        activity = Activity.RESTING;
+        decisionAt = yieldUntil;
+    }
+
     void suspend() {
         if (!suspended) {
             suspended = true;
@@ -112,6 +124,11 @@ final class ResidentRoutine {
             resident.waitHere();
         }
         maintain(now);
+        if (now < yieldUntil) {
+            activity = Activity.RESTING;
+            resident.waitHere();
+            return;
+        }
         if (now < conversationUntil) {
             return;
         }

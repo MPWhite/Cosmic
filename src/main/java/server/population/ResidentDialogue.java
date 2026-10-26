@@ -1,17 +1,26 @@
 package server.population;
 
+import client.Job;
+import server.population.ResidentVoice.Topic;
+
+import java.time.Clock;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Pattern;
 
-/** Authored player-style conversation grounded in the actor's actual activity. */
+/** Short map chat with stable voices and bounded, per-player conversational context. */
 public final class ResidentDialogue {
-    public enum Intent { TALK, FOLLOW, STOP_FOLLOWING, PARTY, HUNT, TRADE, HELP, FAREWELL }
-    public enum Activity { IDLE, ROAMING, RESTING, SHOPPING, EXPLORING, FOLLOWING, WAITING, TRAINING, LOOTING }
+    public enum Intent {
+        TALK, FOLLOW, STOP_FOLLOWING, PARTY, HUNT, TRADE, HELP, FAREWELL, MAP_SPACE
+    }
+
+    public enum Activity {
+        IDLE, ROAMING, RESTING, SHOPPING, EXPLORING, FOLLOWING, WAITING, TRAINING, LOOTING
+    }
 
     public record Context(Activity activity, String mapName, boolean following) {
         public Context {
@@ -29,363 +38,328 @@ public final class ResidentDialogue {
 
     private record Conversation(int residentId, int playerId) { }
 
-    private static final int MAX_RECENT_CONVERSATIONS = 1024;
+    private static final class Turn {
+        final ArrayDeque<String> recent = new ArrayDeque<>();
+        ResidentChatInput.Intent previous = ResidentChatInput.Intent.UNKNOWN;
+        boolean askedLevel;
+        boolean trainingAdvice;
+        boolean offeredFollow;
+        long lastAt;
+    }
+
+    private static final List<String> ADDRESSES = addresses();
     private final ResidentMemoryStore memories;
-    private final Map<Conversation, ArrayDeque<String>> recent = new LinkedHashMap<>(32, .75f, true);
+    private final Clock clock;
+    private final Map<Conversation, Turn> turns = new LinkedHashMap<>(32, .75f, true);
 
     public ResidentDialogue(ResidentMemoryStore memories) {
+        this(memories, Clock.systemUTC());
+    }
+
+    ResidentDialogue(ResidentMemoryStore memories, Clock clock) {
         this.memories = Objects.requireNonNull(memories);
+        this.clock = Objects.requireNonNull(clock);
     }
 
     public String greeting(ResidentProfiles.Profile resident, int playerId, String playerName) {
         return greeting(resident, playerId, playerName, Context.town());
     }
 
-    public String greeting(ResidentProfiles.Profile resident, int playerId, String playerName, Context context) {
-        var before = memories.get(playerId, resident.id(), playerName);
-        memories.visit(playerId, resident.id(), playerName);
-        long turn = before.visits() + before.conversations();
-        if (!before.hasMet()) {
-            return pick(resident, playerId, turn, firstHello(resident));
-        }
-        // Recognition should be occasional, rather than a name-and-memory recital every time a map loads.
-        if (before.visits() > 0 && before.visits() % 4 == 0 && !before.lastTopic().isBlank()) {
-            return pick(resident, playerId, turn, "hey again. how's " + before.lastTopic() + " going?",
-                    "oh hey " + playerName + ". still on " + before.lastTopic() + "?");
-        }
-        if (context.activity() == Activity.TRAINING) {
-            return pick(resident, playerId, turn, "wb. taking this side", "oh hey, watch behind you", "hey again");
-        }
-        return pick(resident, playerId, turn, "wb", "hey again", "oh hey", "back for a bit?", "yo " + playerName);
+    public String greeting(ResidentProfiles.Profile resident, int playerId, String playerName,
+            Context context) {
+        boolean met = memories.get(playerId, resident.id(), playerName).hasMet();
+        var memory = memories.visit(playerId, resident.id(), playerName);
+        return say(resident, playerId, memory.visits(), met ? Topic.RETURN : Topic.HELLO, context);
     }
 
     public String reply(ResidentProfiles.Profile resident, int playerId, String playerName, String message) {
         return reply(resident, playerId, playerName, message, Context.town());
     }
 
-    public String reply(ResidentProfiles.Profile resident, int playerId, String playerName, String message, Context context) {
-        String text = normalize(message);
+    public synchronized String reply(ResidentProfiles.Profile resident, int playerId, String playerName, String message,
+            Context context) {
+        ResidentChatInput input = ResidentChatInput.parse(message, resident.name(), ADDRESSES);
         var before = memories.get(playerId, resident.id(), playerName);
-        memories.converse(playerId, resident.id(), playerName, topic(text));
-        long turn = before.conversations();
-        Intent request = intent(text);
-
-        if (has(text, "bot", "npc", "human", "real player", "are you ai")) {
-            return resident.companion()
-                    ? "yeah, a server-run bot. I can explore and help with mobs, but I'm not a human player."
-                    : "yep, a server-run bot. the movement and chatter are simulated.";
+        memories.converse(playerId, resident.id(), playerName, topic(input));
+        long sequence = before.conversations();
+        Turn turn = turn(resident, playerId);
+        if (clock.millis() - turn.lastAt > 90_000) {
+            turn.previous = ResidentChatInput.Intent.UNKNOWN;
+            turn.askedLevel = false;
+            turn.offeredFollow = false;
         }
-        if (has(text, "remember", "recognize", "recognise", "met before", "my name")) {
-            if (!before.hasMet()) {
-                return "don't think we've met yet, " + playerName + ". hey though";
+        if (acceptsOffer(turn, input)) {
+            input = new ResidentChatInput(input.text(), ResidentChatInput.Intent.FOLLOW,
+                    input.addressed(), input.question());
+        }
+        turn.offeredFollow = false;
+        turn.lastAt = clock.millis();
+        var previous = turn.previous;
+        turn.previous = input.intent();
+        if (turn.askedLevel && input.text().matches("(?:im |i am |lvl |level )?\\d{1,3}")) {
+            turn.askedLevel = false;
+            int level = Integer.parseInt(input.text().replaceAll("\\D", ""));
+            if (level >= 1 && level <= 255) {
+                if (turn.trainingAdvice) {
+                    turn.trainingAdvice = false;
+                    return level <= 20 ? "try the mushrooms east of hene"
+                            : level <= 30 ? "tried the pigs east of hene?" : "these mobs are pretty low for u";
+                }
+                return pick(resident, playerId, sequence, "nice", "oh nice, gl with the grind", "ah kk");
             }
-            if (!before.lastTopic().isBlank()) {
-                return "yeah, " + before.playerName() + ". you mentioned " + before.lastTopic() + " last time.";
+        }
+        turn.askedLevel = false;
+        turn.trainingAdvice = false;
+        if (input.text().matches("(?:and )?(?:you|u)")) {
+            if (previous == ResidentChatInput.Intent.LEVEL) {
+                return resident.level() + " " + jobName(resident.job());
             }
-            return "yeah, " + before.playerName() + ". we've talked before.";
+            return say(resident, playerId, sequence, Topic.ACTIVITY, context);
         }
-        if (has(text, "who are you", "your name", "about yourself", "what class", "what job", "what level", "what lvl")) {
-            return "" + resident.level() + " " + jobName(resident.job()) + ". " + switch (resident.id()) {
-                case 1 -> "mia. usually taking the wrong portal lol";
-                case 2 -> "pip. usually around the training fields.";
-                case 3 -> "juniper. taking it slow.";
-                default -> "" + resident.name() + ". mostly around here.";
-            };
-        }
-        if (request == Intent.STOP_FOLLOWING) {
-            return pick(resident, playerId, turn, "kk, I'll wait here", "sure, take your time", "stopping here. just call me when you're ready");
-        }
-        if (request == Intent.FOLLOW) {
-            if (!resident.companion()) {
-                return pick(resident, playerId, turn, "sticking to my usual route rn. try Mia, Pip or Juniper",
-                        "not tagging along today. Mia, Pip or Juniper can follow you though");
+        return switch (input.intent()) {
+            case IDENTITY -> "yeah, server-run bot";
+            case MEMORY -> !before.hasMet() ? "don't think we've met, " + playerName
+                    : before.lastTopic().isBlank() ? "yeah, " + before.playerName() + " :)"
+                    : "yeah " + before.playerName() + ", we talked about " + before.lastTopic();
+            case LEVEL -> {
+                boolean askBack = ResidentVoice.voice(resident) == ResidentVoice.Voice.SOCIAL
+                        || ResidentVoice.voice(resident) == ResidentVoice.Voice.PLAYFUL;
+                turn.askedLevel = askBack;
+                yield resident.level() + " " + jobName(resident.job()) + (askBack ? ", u?" : "");
             }
-            return pick(resident, playerId, turn, switch (resident.id()) {
-                case 1 -> new String[]{"yeah let's go", "coming! which way?", "ok, you pick the portal this time lol"};
-                case 2 -> new String[]{"yep. lead on", "coming. I'll help with nearby mobs", "sure, let's move"};
-                default -> new String[]{"sure, coming", "right behind you", "okay. no rush"};
-            });
-        }
-        if (request == Intent.FAREWELL) {
-            return pick(resident, playerId, turn, "cya", "later o/", "take it easy", "see you around", "night, if you're heading off");
-        }
-        if (request == Intent.PARTY) {
-            return resident.companion()
-                    ? pick(resident, playerId, turn, "can't take a party slot. I can follow and help with mobs though",
-                    "no party invites for me, but I can tag along. say 'follow me'")
-                    : pick(resident, playerId, turn, "can't join a party. Mia, Pip or Juniper can tag along with you",
-                    "not a party member, sorry. just doing my own thing here");
-        }
-        if (request == Intent.TRADE) {
-            if (has(text, "where", "shop", "potions")) {
-                return "try the town shops for supplies. I can't sell you items or trade mesos.";
+            case JOB, ABOUT -> jobName(resident.job())
+                    + (input.intent() == ResidentChatInput.Intent.ABOUT ? ", lvl " + resident.level() : "");
+            case FOLLOW -> say(resident, playerId, sequence,
+                    resident.companion() ? Topic.FOLLOW_ACCEPT : Topic.FOLLOW_DECLINE, context);
+            case STAY -> say(resident, playerId, sequence, Topic.WAIT_ACCEPT, context);
+            case GOODBYE -> say(resident, playerId, sequence, Topic.BYE, context);
+            case GREETING -> say(resident, playerId, sequence, before.hasMet() ? Topic.RETURN : Topic.HELLO, context);
+            case WELCOME_BACK -> say(resident, playerId, sequence, Topic.RETURN, context);
+            case THANKS, GRATS -> say(resident, playerId, sequence, Topic.THANKS, context);
+            case ACK, DISMISS -> say(resident, playerId, sequence, Topic.ACK, context);
+            case LAUGH -> input.has("fell", "fall", "jump")
+                    ? pick(resident, playerId, sequence, "lol that jump", "F4", "oof, try the rope")
+                    : say(resident, playerId, sequence, Topic.LAUGH, context);
+            case BRB -> say(resident, playerId, sequence, Topic.BRB, context);
+            case DIED -> say(resident, playerId, sequence, Topic.DEATH, context);
+            case LEVEL_UP -> levelUp(resident, playerName, sequence);
+            case PARTY -> say(resident, playerId, sequence, Topic.PARTY, context);
+            case BUY, SELL, TRADE -> say(resident, playerId, sequence, Topic.TRADE, context);
+            case BUFF -> "can't buff, sry";
+            case MAP_COURTESY -> input.has("taken", "anyone here", "this map yours", "your map")
+                    ? pick(resident, playerId, sequence, "u can train here", "room for both of us", "nah, go ahead")
+                    : say(resident, playerId, sequence, Topic.MAP_SPACE, context);
+            case COMPLIMENT -> input.has("hat") && !resident.equipment().containsKey(1)
+                    ? "my hair? ty lol" : pick(resident, playerId, sequence, "ty :)", "tyty", "thx");
+            case PROGRESS -> input.text().matches(".*\\b9[5-9]\\b.*")
+                    ? pick(resident, playerId, sequence, "so close", "almost there", "one more mob maybe")
+                    : pick(resident, playerId, sequence, "gl with the grind", "keep going :)");
+            case LOCATION -> {
+                if (input.has("train", "training", "level", "lvl", "grind")) {
+                    turn.askedLevel = true;
+                    turn.trainingAdvice = true;
+                    yield "what lvl?";
+                }
+                yield location(input, context);
             }
-            return pick(resident, playerId, turn, "can't trade items or mesos, sorry", "nothing for sale from me. just browsing",
-                    "no trades on my end. the town NPC shops still work");
-        }
-        if (request == Intent.HELP) {
-            if (has(text, "level", "lvl", "train", "grind")) {
-                return resident.companion()
-                        ? "start with nearby mobs you can handle. ask me to follow if you want a hand."
-                        : "nearby fields are a place to start. pick mobs you can handle.";
+            case HELP -> {
+                if (input.has("quest", "quests")) {
+                    yield "which quest? gotta talk to the quest npc yourself";
+                }
+                if (input.has("train", "training", "level", "lvl", "grind")) {
+                    turn.askedLevel = true;
+                    turn.trainingAdvice = true;
+                    yield "what lvl?";
+                }
+                yield context.following() ? "ye, tag a mob first" : "with what?";
             }
-            if (has(text, "quest", "task")) {
-                return resident.companion() ? "I can help with nearby mobs while following, but you'll need to handle the quest NPCs."
-                        : "I don't complete quests. check the quest NPC or your quest log.";
+            case HUNT -> {
+                if (context.activity() == Activity.TRAINING) {
+                    yield say(resident, playerId, sequence, Topic.HUNT, context);
+                }
+                if (context.following()) {
+                    yield "ye, hit something and i'll help";
+                }
+                turn.offeredFollow = resident.companion();
+                yield resident.companion() ? "sure, want me to come?"
+                        : say(resident, playerId, sequence, Topic.ACTIVITY, context);
             }
-            if (has(text, "stuck", "lost", "where")) {
-                return context.following() ? "I'm following your route. take a moment at the next safe platform if you need to."
-                        : "we're in " + context.mapName() + ". check the minimap for the portals.";
+            case STATUS -> input.has("coming", "come", "there", "following") && context.following()
+                    ? say(resident, playerId, sequence, Topic.FOLLOW, context)
+                    : say(resident, playerId, sequence, Topic.ACTIVITY, context);
+            case COMPANY -> say(resident, playerId, sequence, Topic.COMPANY, context);
+            case MONSTERS -> mobComment(input, resident, playerId, sequence, context);
+            default -> {
+                if (input.text().equals("why") && previous == ResidentChatInput.Intent.PARTY) {
+                    yield resident.companion() ? "can't accept party invites. can still run with u"
+                            : "can't accept party invites";
+                }
+                if (input.has("lag", "laggy", "dc", "dced")) {
+                    yield pick(resident, playerId, sequence, "rip", "oof", "F4");
+                }
+                yield say(resident, playerId, sequence, Topic.UNKNOWN, context);
             }
-            return resident.companion()
-                    ? "I can follow, help with nearby mobs, or wait here. say 'follow me' or 'stay'."
-                    : "for a companion, ask Mia, Pip or Juniper to follow. I'm keeping to my own route.";
-        }
-        if (has(text, "leveled", "levelled", "level up", "ding")) {
-            return pick(resident, playerId, turn, "grats!", "nice, grats", "gz", "ayy grats");
-        }
-        if (has(text, "died", "dead", "rip")) {
-            return pick(resident, playerId, turn, "oof", "rip. take a sec", "rough. safe spot first", "ahh, unlucky");
-        }
-        if (request == Intent.HUNT) {
-            if (context.activity() == Activity.TRAINING) {
-                return pick(resident, playerId, turn, "working on these mobs rn", "taking this side. watch the ones behind you",
-                        "yeah, a few more rounds then a break", "one at a time works for me");
-            }
-            if (context.following()) {
-                return pick(resident, playerId, turn, "yeah, I'll help with mobs when we reach them", "lead the way to the mobs",
-                        "coming with you. let's find a clear spot");
-            }
-            return resident.companion()
-                    ? pick(resident, playerId, turn, "up for it. say 'follow me' and I'll help with nearby mobs",
-                    "taking a break rn. I can tag along if you ask me to follow")
-                    : pick(resident, playerId, turn, "on my own route today. how's your grind going?", "taking it at my own pace rn");
-        }
-        if (has(text, "thank", "thanks", "ty", "thx")) {
-            return pick(resident, playerId, turn, "np", "anytime", "all good", "yw");
-        }
-        if (has(text, "lol", "lmao", "haha", "xd", "rofl")) {
-            return pick(resident, playerId, turn, resident.id() == 3 ? new String[]{"haha", "fair", ":)"}
-                    : new String[]{"lol", "haha", "fair", "ok that was good"});
-        }
-        if (has(text, "brb", "afk", "back in a minute")) {
-            return pick(resident, playerId, turn, "kk", "take your time", "no rush");
-        }
-        if (text.matches("(?:ok|okay|sure|yes|yep|yeah|alright)[.! ]*")) {
-            return pick(resident, playerId, turn, "yep", "cool", "alright");
-        }
-        if (has(text, "never mind", "nvm", "nah")) {
-            return pick(resident, playerId, turn, "all good", "np", "fair enough");
-        }
-        if (has(text, "mushroom", "slime", "snail")) {
-            return pick(resident, playerId, turn, switch (resident.id()) {
-                case 1 -> new String[]{"the mushrooms look so harmless lol", "it's always the one behind you", "those little hops though"};
-                case 2 -> new String[]{"keep an eye behind you", "steady pulls. no need to rush", "mushrooms are all over those fields"};
-                case 3 -> new String[]{"the snails are in no hurry either", "quiet until a mushroom lands on you", "one at a time"};
-                default -> new String[]{"mushrooms everywhere", "watch the ones behind you", "those fields stay busy"};
-            });
-        }
-        if (has(text, "lonely", "friend", "company", "alone", "sad")) {
-            return pick(resident, playerId, turn, "you can hang here for a bit", "no need to rush off", "yeah, a bit of company helps");
-        }
-        if (has(text, "how are", "how's", "hows", "doing", "what's up", "whats up", "sup")) {
-            return pick(resident, playerId, turn, activityLines(resident, context));
-        }
-        if (has(text, "hello", "hey", "hi", "hiya", "morning", "afternoon", "yo")) {
-            return pick(resident, playerId, turn, before.hasMet()
-                    ? new String[]{"hey again", "yo", "hey, what's up?", "oh hey"} : firstHello(resident));
-        }
-        if (has(text, "henesys", "town", "home", "travel", "ellinia", "kerning", "perion")) {
-            return pick(resident, playerId, turn, "I'm around " + context.mapName() + " rn", "checking the next map or hanging here?",
-                    "town break first, then maybe head out");
-        }
-        if (has(text, "weather", "rain", "sun", "cloud")) {
-            return pick(resident, playerId, turn, "nice spot to idle for a bit", "yeah, I like this map", "beats rushing everywhere");
-        }
-        if (!before.lastTopic().isBlank() && turn % 5 == 4) {
-            return pick(resident, playerId, turn, "still on " + before.lastTopic() + "?", "how did " + before.lastTopic() + " go?");
-        }
-        return pick(resident, playerId, turn, "what do you mean?", "wait, didn't quite catch that", "oh?", "what're you up to?");
+        };
     }
 
     public static Intent intent(String message) {
-        String text = withoutAddress(normalize(message));
-        if (text.matches("(?:please )?(?:stop|stay|wait)(?: here)?[.! ]*")
-                || has(text, "stop following", "don't follow", "do not follow", "stay here", "wait here")) {
-            return Intent.STOP_FOLLOWING;
-        }
-        if (text.matches("(?:please )?follow[.! ]*") || has(text, "follow me", "walk with me", "come with me", "let's walk", "lets walk", "come along")) {
+        return switch (ResidentChatInput.parse(message, "", ADDRESSES).intent()) {
+            case FOLLOW -> Intent.FOLLOW;
+            case STAY -> Intent.STOP_FOLLOWING;
+            case GOODBYE -> Intent.FAREWELL;
+            case PARTY -> Intent.PARTY;
+            case BUY, SELL, TRADE -> Intent.TRADE;
+            case HUNT -> Intent.HUNT;
+            case HELP, LOCATION -> Intent.HELP;
+            case MAP_COURTESY -> Intent.MAP_SPACE;
+            default -> Intent.TALK;
+        };
+    }
+
+    public synchronized Intent intentFor(ResidentProfiles.Profile resident, int playerId, String message) {
+        Turn turn = turns.get(new Conversation(resident.id(), playerId));
+        if (turn != null && clock.millis() - turn.lastAt <= 90_000
+                && acceptsOffer(turn, ResidentChatInput.parse(message, resident.name(), ADDRESSES))) {
             return Intent.FOLLOW;
         }
-        if (has(text, "bye", "goodbye", "cya", "see you", "see ya", "gtg", "g2g", "gotta go", "good night", "goodnight", "gn")
-                || text.matches("later[.! ]*")) {
-            return Intent.FAREWELL;
+        return intent(message);
+    }
+
+    private static boolean acceptsOffer(Turn turn, ResidentChatInput input) {
+        return turn.offeredFollow && input.intent() == ResidentChatInput.Intent.ACK
+                && input.text().matches("(?:yes|ye|yea|yeah|sure|ok|okay|kk|yep|yup|please)");
+    }
+
+    static boolean continuesConversation(String message) {
+        var input = ResidentChatInput.parse(message);
+        if (switch (input.intent()) {
+            case FOLLOW, STAY, DISMISS -> true;
+            default -> false;
+        }) {
+            return true;
         }
-        if (has(text, "party", "pq", "lfg", "kpq", "lpq", "party invite")) {
-            return Intent.PARTY;
+        if (message.matches("(?is)^\\s*[a-z][a-z0-9_]{2,12}\\s*[:,].*")) {
+            return false;
         }
-        if (has(text, "trade", "sell", "buy", "price", "mesos", "meso", "wts", "wtb", "free items")) {
-            return Intent.TRADE;
-        }
-        if (has(text, "help", "how do", "how to", "where", "stuck", "lost", "quest")) {
-            return Intent.HELP;
-        }
-        if (has(text, "train", "level", "lvl", "grind", "fight", "hunt", "farm", "kill", "boss")) {
-            return Intent.HUNT;
-        }
-        return Intent.TALK;
+        return switch (input.intent()) {
+            case BUY, SELL -> false;
+            case PARTY -> !input.has("lfg", "lfp", "recruiting");
+            default -> true;
+        };
     }
 
     public String ambient(ResidentProfiles.Profile resident, long sequence) {
         return ambient(resident, Context.town(), sequence);
     }
 
-    /** Only call for a level increase actually observed by the population service. */
-    public String levelUp(ResidentProfiles.Profile resident, String playerName, long sequence) {
-        String name = playerName == null ? "" : playerName;
-        return pick(resident, name.hashCode(), sequence, switch (resident.id()) {
-            case 1 -> new String[]{"ayy grats!", "gz!", "nice, grats " + name, "there it is. grats!"};
-            case 2 -> new String[]{"grats", "nice level", "gz", "good stuff"};
-            default -> new String[]{"grats :)", "nice, grats", "gz", "well done"};
-        });
-    }
-
     public String ambient(ResidentProfiles.Profile resident, Context context, long sequence) {
-        String[] lines = activityLines(resident, context);
-        return lines[(int) Math.floorMod(sequence + resident.id(), (long) lines.length)];
+        return say(resident, 0, sequence, Topic.ACTIVITY, context);
     }
 
-    /** Use only for a nearby, available pair; the caller schedules the answer after the opener. */
-    public Exchange exchange(ResidentProfiles.Profile first, ResidentProfiles.Profile second, Context context, long sequence) {
-        if (context.activity() == Activity.TRAINING) {
-            return switch ((int) Math.floorMod(sequence, 3L)) {
-                case 0 -> new Exchange("taking this side?", "yep, watching behind us");
-                case 1 -> new Exchange("break after this?", "yeah, sounds good");
-                default -> new Exchange("those respawns though", "barely a breather lol");
-            };
-        }
-        return switch ((int) Math.floorMod(sequence + first.id() + second.id(), 5L)) {
-            case 0 -> new Exchange("taking a break?", "yeah, just a minute");
-            case 1 -> new Exchange("heading out again?", "in a bit. chilling rn");
-            case 2 -> new Exchange("which map next?", "still deciding");
-            case 3 -> new Exchange("one more lap?", first.id() == 1 ? "you and your laps lol" : "maybe after a break");
-            default -> new Exchange("still here?", "yep, no rush");
-        };
+    public String levelUp(ResidentProfiles.Profile resident, String playerName, long sequence) {
+        return say(resident, playerName == null ? 0 : playerName.hashCode(), sequence,
+                Topic.LEVEL_UP, Context.town());
     }
 
-    private static String[] activityLines(ResidentProfiles.Profile resident, Context context) {
-        return switch (context.activity()) {
-            case TRAINING -> switch (resident.id()) {
-                case 1 -> new String[]{"these things respawn so fast lol", "one more round", "watch the one behind you", "break after this?"};
-                case 2 -> new String[]{"taking this side", "keeping it steady", "watch the next spawn", "a few more then a break"};
-                case 3 -> new String[]{"one at a time", "watch behind you", "no rush", "taking this slowly"};
-                default -> new String[]{"one more round", "taking this side", "these respawns", "break soon"};
-            };
-            case LOOTING -> new String[]{"one sec, drops", "checking the ground", "picking these up first"};
-            case RESTING -> resident.id() == 3
-                    ? new String[]{"quiet break", "just resting", "no rush", "this spot's fine"}
-                    : new String[]{"brb a sec", "taking a breather", "just chilling", "break time"};
-            case SHOPPING -> new String[]{"just looking", "window shopping", "checking the shops", "not buying anything rn"};
-            case FOLLOWING -> new String[]{"right behind you", "which way?", "coming", "take your time at the next platform"};
-            case WAITING -> new String[]{"I'll be here", "take your time", "waiting here", "no rush"};
-            case EXPLORING -> new String[]{"checking the next map", "which portal was it again?", "taking the long way", "let's see what's over here"};
-            case ROAMING -> resident.id() == 1
-                    ? new String[]{"one more lap then a break", "might head east in a bit", "anyone heading out?", "just stretching my legs"}
-                    : new String[]{"just passing through", "taking a lap", "might head out in a bit", "back through town"};
-            case IDLE -> idleLines(resident);
-        };
+    public Exchange exchange(ResidentProfiles.Profile first, ResidentProfiles.Profile second, Context context,
+            long sequence) {
+        return ResidentVoice.exchange(first, second, context, sequence);
     }
 
-    private static String[] idleLines(ResidentProfiles.Profile resident) {
-        return switch (resident.id()) {
-            case 1 -> new String[]{"hene break", "anyone heading east?", "might check the next map", "one more lap maybe"};
-            case 2 -> new String[]{"taking a minute", "back in town", "might head to the fields", "not rushing it"};
-            case 3 -> new String[]{"just hanging here", "quiet spot", "no rush", "taking it slow"};
-            case 4, 9, 18 -> new String[]{"which map next", "checking the route", "town stop", "not staying long"};
-            case 5, 7, 14, 19 -> new String[]{"just chilling", "good place for a break", "hanging here a bit", "not in a hurry"};
-            case 6, 11, 13 -> new String[]{"might check the shops", "that outfit though", "window shopping later", "just looking around"};
-            case 10, 17 -> new String[]{"still figuring this place out", "which portal was it", "made it back at least", "taking it slow"};
-            default -> new String[]{"back for a bit", "anyone heading out?", "town break", "taking a minute"};
-        };
+    private String say(ResidentProfiles.Profile resident, int playerId, long sequence, Topic topic,
+            Context context) {
+        return pick(resident, playerId, sequence, ResidentVoice.lines(resident, topic, context));
     }
 
-    private static String[] firstHello(ResidentProfiles.Profile resident) {
-        return switch (resident.id()) {
-            case 1 -> new String[]{"hey o/", "yo", "hey, mia here", "hey, what's up?"};
-            case 2 -> new String[]{"hey", "yo", "sup", "hey, taking a break?"};
-            case 3 -> new String[]{"hey", "hi :)", "oh, hi", "taking a break too?"};
-            default -> new String[]{"hey", "yo", "hi", "what's up?"};
-        };
-    }
-
-    private synchronized String pick(ResidentProfiles.Profile resident, int playerId, long sequence, String... lines) {
-        Conversation key = new Conversation(resident.id(), playerId);
-        ArrayDeque<String> history = recent.computeIfAbsent(key, ignored -> new ArrayDeque<>());
+    private synchronized String pick(ResidentProfiles.Profile resident, int playerId, long sequence,
+            String... lines) {
+        Turn turn = turn(resident, playerId);
         int start = (int) Math.floorMod(sequence + resident.id() * 13L + playerId * 7L, (long) lines.length);
         String selected = lines[start];
         for (int offset = 0; offset < lines.length; offset++) {
             String candidate = lines[(start + offset) % lines.length];
-            if (!history.contains(candidate)) {
+            if (!turn.recent.contains(candidate)) {
                 selected = candidate;
                 break;
             }
         }
-        if (selected.equals(history.peekLast()) && lines.length > 1) {
+        if (selected.equals(turn.recent.peekLast()) && lines.length > 1) {
             selected = lines[(start + 1) % lines.length];
         }
-        history.addLast(selected);
-        while (history.size() > 6) {
-            history.removeFirst();
-        }
-        if (recent.size() > MAX_RECENT_CONVERSATIONS) {
-            recent.remove(recent.keySet().iterator().next());
+        turn.recent.addLast(selected);
+        while (turn.recent.size() > 6) {
+            turn.recent.removeFirst();
         }
         return selected;
     }
 
-    private static String topic(String text) {
-        if (has(text, "remember", "recognize", "recognise", "my name")) return "";
-        if (has(text, "mushroom", "slime", "snail")) return "mushrooms";
-        if (has(text, "train", "level", "lvl", "grind", "fight", "hunt", "farm")) return "your training";
-        if (has(text, "party", "boss", "quest")) return "your next adventure";
-        if (has(text, "trade", "shop", "buy", "sell")) return "shopping";
-        if (has(text, "lonely", "friend", "company", "alone", "sad")) return "finding some company";
-        if (has(text, "weather", "rain", "sun", "cloud")) return "the weather";
-        if (has(text, "henesys", "town", "home", "travel", "ellinia", "kerning", "perion")) return "your travels";
-        return "";
+    private Turn turn(ResidentProfiles.Profile resident, int playerId) {
+        Turn turn = turns.computeIfAbsent(new Conversation(resident.id(), playerId), ignored -> new Turn());
+        while (turns.size() > 1024) {
+            turns.remove(turns.keySet().iterator().next());
+        }
+        return turn;
     }
 
-    private static String jobName(int job) {
-        return switch (job / 100) {
-            case 1 -> "warrior";
-            case 2 -> job == 230 ? "cleric" : "mage";
-            case 3 -> "archer";
-            case 4 -> "thief";
-            case 5 -> "pirate";
-            default -> "beginner";
+    private static String location(ResidentChatInput input, Context context) {
+        if (input.has("pots", "potions", "shop", "store")) {
+            return "pot shop in town";
+        }
+        if (input.has("npc")) {
+            return "which npc?";
+        }
+        if (input.has("train", "grind", "level", "training")) {
+            return "tried the mushrooms east of hene?";
+        }
+        return context.mapName();
+    }
+
+    private String mobComment(ResidentChatInput input, ResidentProfiles.Profile resident, int playerId, long sequence,
+            Context context) {
+        if (input.has("snail", "snails")) {
+            return pick(resident, playerId, sequence,
+                    "snails just doing their thing", "snails everywhere lol", "little blue guys");
+        }
+        if (input.has("slime", "slimes")) {
+            return pick(resident, playerId, sequence,
+                    "the squish sound tho", "slimes are cute", "green blobs lol");
+        }
+        return say(resident, playerId, sequence, Topic.MOBS, context);
+    }
+
+    private static String topic(ResidentChatInput input) {
+        if (input.intent() == ResidentChatInput.Intent.MEMORY) {
+            return "";
+        }
+        if (input.has("snail", "snails")) {
+            return "snails";
+        }
+        if (input.has("slime", "slimes")) {
+            return "slimes";
+        }
+        if (input.has("mushroom", "mushrooms")) {
+            return "mushrooms";
+        }
+        return switch (input.intent()) {
+            case HUNT, PROGRESS -> "your training";
+            case PARTY -> "party quests";
+            case BUY, SELL, TRADE -> "shopping";
+            case COMPANY -> "hanging out";
+            default -> "";
         };
     }
 
-    private static String withoutAddress(String text) {
-        for (var resident : ResidentProfiles.all()) {
-            String name = resident.name().toLowerCase(Locale.ROOT);
-            if (text.startsWith(name) && text.length() > name.length() && !Character.isLetterOrDigit(text.charAt(name.length()))) {
-                return text.substring(name.length()).replaceFirst("^[, :]+", "").strip();
-            }
-        }
-        return text;
+    private static String jobName(int job) {
+        Job known = Job.getById(job);
+        return known == null ? "beginner" : known.name().toLowerCase(Locale.ROOT).replace('_', ' ');
     }
 
-    private static String normalize(String message) {
-        if (message == null) return "";
-        return message.substring(0, Math.min(message.length(), 240)).toLowerCase(Locale.ROOT).strip();
-    }
-
-    private static boolean has(String text, String... terms) {
-        for (String term : terms) {
-            String ending = term.length() > 3 && !term.contains(" ") ? "[a-z]*" : "";
-            if (Pattern.compile("(?<![a-z])" + Pattern.quote(term) + ending + "(?![a-z])").matcher(text).find()) return true;
+    private static List<String> addresses() {
+        List<String> names = new ArrayList<>(List.of("Mia", "Pip", "Juniper"));
+        ResidentProfiles.all().forEach(r -> names.add(r.name()));
+        for (int map : new int[]{ResidentRoster.TRAINING_GROUND, ResidentRoster.PIG_FIELD}) {
+            ResidentRoster.forMap(map).forEach(p -> names.add(p.profile().name()));
         }
-        return false;
+        return List.copyOf(names);
     }
 }

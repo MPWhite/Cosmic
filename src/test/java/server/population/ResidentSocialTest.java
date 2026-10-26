@@ -42,13 +42,33 @@ class ResidentSocialTest {
     }
 
     @Test
-    void pairedExchangeContainsTwoShortRelatedLines() {
+    void pairedExchangesKeepEachSpeakersVoiceAndVaryAcrossRelatedSubjects() {
         var dialogue = new ResidentDialogue(ResidentMemoryStore.inMemory());
-        var exchange = dialogue.exchange(ResidentProfiles.all().getFirst(), ResidentProfiles.all().get(1),
-                ResidentDialogue.Context.town(), 2);
-        assertEquals("taking a break?", exchange.opener());
-        assertEquals("yeah, just a minute", exchange.answer());
-        assertTrue(exchange.opener().length() < 80);
-        assertTrue(exchange.answer().length() < 80);
+        var mia = ResidentProfiles.find("MapleMia").orElseThrow();
+        var pip = ResidentProfiles.find("PipArcher").orElseThrow();
+        var juniper = ResidentProfiles.find("Juniper").orElseThrow();
+        var oak = ResidentProfiles.find("OakWarden").orElseThrow();
+        var town = ResidentDialogue.Context.town();
+        var exchange = dialogue.exchange(mia, pip, town, 0);
+        assertEquals(exchange, dialogue.exchange(mia, pip, town, 0));
+
+        // Compensate for the identity seed so the subject stays the same while one voice changes.
+        var differentAnswer = dialogue.exchange(mia, juniper, town, pip.id() - juniper.id());
+        assertEquals(exchange.opener(), differentAnswer.opener());
+        assertNotEquals(exchange.answer(), differentAnswer.answer());
+        var differentOpener = dialogue.exchange(oak, pip, town, mia.id() - oak.id());
+        assertNotEquals(exchange.opener(), differentOpener.opener());
+        assertEquals(exchange.answer(), differentOpener.answer());
+
+        var variants = new HashSet<ResidentDialogue.Exchange>();
+        for (int sequence = 0; sequence < 12; sequence++) {
+            var pair = dialogue.exchange(mia, pip, town, sequence);
+            assertFalse(pair.opener().isBlank());
+            assertFalse(pair.answer().isBlank());
+            assertTrue(pair.opener().length() < 80);
+            assertTrue(pair.answer().length() < 80);
+            variants.add(pair);
+        }
+        assertTrue(variants.size() >= 3);
     }
 }

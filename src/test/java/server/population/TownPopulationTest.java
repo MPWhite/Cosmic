@@ -28,6 +28,10 @@ class TownPopulationTest {
         assertSame(mia, TownPopulation.addressedResident(people, "MapleMiaFan says hi, MapleMia"));
         assertNull(TownPopulation.addressedResident(people, "MapleMiaFan, hello"));
         assertNull(TownPopulation.addressedResident(people, "Hello everyone"));
+        assertSame(pip, TownPopulation.addressedResident(people, "Pip, lvl?"));
+        assertSame(mia, TownPopulation.addressedResident(people, "hey Mia"));
+        assertNull(TownPopulation.addressedResident(people, "PipArcher told me about that map"));
+        assertNull(TownPopulation.addressedResident(people, "I was talking about MapleMia yesterday"));
     }
 
     @Test

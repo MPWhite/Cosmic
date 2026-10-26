@@ -84,6 +84,13 @@ Residents use authored, contextual dialogue and need no AI API key. They remembe
 conversations, recognize acquaintances occasionally, react to nearby level-ups,
 and vary their timing. Unsolicited chatter has per-speaker and per-map cooldowns
 and suppresses repeated lines. `@residents` identifies them as simulated actors.
+Chat uses five consistent voices and Maple shorthand: try `Pip, lvl?`, `party?`,
+`got pots?`, `brb`, or `back`. Short message bursts are combined into one reply;
+follow-up questions and answers keep brief conversational context. Saying `yes`
+after a companion offers to come accepts the offer. `hold up` pauses a companion,
+and asking an independent hunter `cc pls` gives you two minutes of hunting space
+without claiming to switch channels. Actual features are still listed in
+`@residents`; ordinary dialogue stays short.
 They cannot trade, accept party invites, complete quests, or use boss mechanics.
 Scripted, closed, and event portals are excluded. Residents do not occupy player
 slots or control monsters. Ordinary activity and hunting sleep in empty maps;

@@ -149,6 +149,8 @@ public final class TownPopulation {
                 scene.lastReply.remove(player.getId());
                 scene.lastPartner.remove(player.getId());
                 scene.observedLevels.remove(player.getId());
+                scene.pendingReplies.values().removeIf(p -> p.player() == player);
+                scene.latestMovement.remove(player.getId());
 
             });
         }
@@ -282,8 +284,15 @@ public final class TownPopulation {
             // Only continue an existing conversation briefly; ordinary map chat is not a bot summons.
             Integer partner = scene.lastPartner.get(player.getId());
             long since = System.currentTimeMillis() - scene.lastReply.getOrDefault(player.getId(), 0L);
-            if (partner != null && since < 45_000) {
+            if (partner != null && since < 30_000 && ResidentDialogue.continuesConversation(text)) {
                 Holder.INSTANCE.respond(scene, player, scene.byId(partner), text, false);
+            } else if (partner == null && ResidentChatInput.parse(text).intent() == ResidentChatInput.Intent.GREETING
+                    && System.currentTimeMillis() - scene.lastSpeech > 15_000) {
+                TownResident neighbor = scene.residents.stream()
+                        .filter(r -> Holder.INSTANCE.availableForChat(scene, r, System.currentTimeMillis()))
+                        .filter(r -> r.getPosition().distanceSq(player.getPosition()) < 250 * 250)
+                        .min(Comparator.comparingDouble(r -> r.getPosition().distanceSq(player.getPosition()))).orElse(null);
+                if (neighbor != null) Holder.INSTANCE.respond(scene, player, neighbor, text, false);
             }
         });
     }
@@ -328,42 +337,92 @@ public final class TownPopulation {
         TownResident first = null;
         int firstPosition = Integer.MAX_VALUE;
         for (TownResident resident : residents) {
-            String name = resident.getName().toLowerCase(Locale.ROOT);
+            List<String> names = switch (resident.getName()) {
+                case "MapleMia" -> List.of("maplemia", "mia");
+                case "PipArcher" -> List.of("piparcher", "pip");
+                default -> List.of(resident.getName().toLowerCase(Locale.ROOT));
+            };
+            for (String name : names) {
             int start = lower.indexOf(name);
             while (start >= 0 && start < firstPosition) {
                 if ((start == 0 || !java.lang.Character.isLetterOrDigit(lower.charAt(start - 1)))
                         && (start + name.length() == lower.length() || !java.lang.Character.isLetterOrDigit(lower.charAt(start + name.length())))) {
-                    first = resident;
-                    firstPosition = start;
-                    break;
+                    String prefix = lower.substring(0, start).strip();
+                    String suffix = lower.substring(start + name.length()).strip();
+                    boolean aboutThem = suffix.matches("^(?:said|told|thinks|says|was|has|is)\\b.*");
+                    if (!aboutThem && (prefix.isEmpty() || prefix.matches("(?:hi|hey|hello|yo|sup)[,!? ]*")
+                            || suffix.matches("[!?., ]*"))) {
+                        first = resident;
+                        firstPosition = start;
+                        break;
+                    }
                 }
                 start = lower.indexOf(name, start + name.length());
+            }
             }
         }
         return first;
     }
 
     private void respond(Scene scene, Character player, TownResident resident, String message, boolean echo) {
+        if (resident == null || resident.getMap() != scene.map || player.getMap() != scene.map
+                || !player.isLoggedin() || scene.map.isMuted() || !nearby(resident, player)) return;
+        PendingReply pending = scene.pendingReplies.get(resident.getId());
+        if (pending != null && pending.player() != player) {
+            if (echo) player.dropMessage(5, resident.getName() + " is chatting. Give them a moment.");
+            return;
+        }
+        String text = message.strip();
+        if (text.isEmpty()) text = "hey";
+        text = text.substring(0, Math.min(120, text.length()));
+        if (echo) {
+            if (player.isHidden()) player.dropMessage(5, "You to " + resident.getName() + ": " + text);
+            else scene.map.broadcastMessage(PacketCreator.getChatText(player.getId(), resident.getName() + ", " + text, false, 0));
+        }
+        long now = System.currentTimeMillis();
+        scene.lastReply.put(player.getId(), now);
+        scene.lastPartner.put(player.getId(), resident.getId());
+        ResidentDialogue.Intent requested = dialogue.intentFor(resident.getProfile(), player.getId(), text);
+        boolean movement = requested == ResidentDialogue.Intent.FOLLOW || requested == ResidentDialogue.Intent.STOP_FOLLOWING;
+        long revision = movement ? ++scene.movementSequence : 0;
+        if (movement) scene.latestMovement.put(player.getId(), revision);
+        if (pending != null) {
+            pending.turn().append(text);
+            if (movement) pending.turn().movementRevision(revision);
+            return;
+        }
+        PendingReply queued = new PendingReply(player, resident, scene.visits.get(player.getId()), new ResidentChatTurn(resident.getName(), text));
+        queued.turn().movementRevision(revision);
+        scene.pendingReplies.put(resident.getId(), queued);
+        long delay = Math.max(0, scene.speechUntil.getOrDefault(resident.getId(), 0L) - now)
+                + ResidentSocial.replyDelay(resident.getProfile(), text, scene.sequence++);
+        scene.speechUntil.put(resident.getId(), now + delay + 1800);
+        scene.lastSpeech = now;
+        ResidentRoutine routine = routines.get(resident);
+        if (routine != null) routine.conversation(now + delay + 1800);
+        resident.faceToward(player.getPosition());
+        simulation.schedule(() -> {
+            if (scene.pendingReplies.remove(resident.getId(), queued) && scene.isCurrentVisit(player, queued.visit())) {
+                String latest = queued.turn().message();
+                ResidentDialogue.Intent command = dialogue.intentFor(resident.getProfile(), player.getId(), latest);
+                if ((command == ResidentDialogue.Intent.FOLLOW || command == ResidentDialogue.Intent.STOP_FOLLOWING)
+                        && queued.turn().movementRevision() != scene.latestMovement.getOrDefault(player.getId(), 0L)) return;
+                replyNow(scene, player, resident, latest);
+            }
+        }, delay, TimeUnit.MILLISECONDS);
+    }
+
+    private record PendingReply(Character player, TownResident resident, Long visit, ResidentChatTurn turn) { }
+
+    private void replyNow(Scene scene, Character player, TownResident resident, String message) {
         if (resident == null || resident.getMap() != scene.map || !scene.residents.contains(resident)
                 || player.getMap() != scene.map || !player.isLoggedin() || scene.map.isMuted()) {
             return;
         }
         if (!nearby(resident, player)) {
-            if (echo) {
-                player.dropMessage(5, resident.getName() + " is too far away to hear you. Walk a little closer.");
-            }
             return;
         }
         long now = System.currentTimeMillis();
-        if (now - scene.lastReply.getOrDefault(player.getId(), 0L) < 1800) {
-            return;
-        }
-        if (!scene.reserveSpeech(resident.getId(), now, 1800)) {
-            if (echo) {
-                player.dropMessage(5, resident.getName() + " is finishing a conversation. Try again in a moment.");
-            }
-            return;
-        }
         String text = message.strip();
         if (text.isEmpty()) {
             text = "hello";
@@ -372,15 +431,7 @@ public final class TownPopulation {
         scene.lastReply.put(player.getId(), now);
         scene.lastPartner.put(player.getId(), resident.getId());
         scene.lastSpeech = now; // also reserve the pause before the spoken reply
-        Long visit = scene.visits.get(player.getId());
-        if (echo) {
-            if (player.isHidden()) {
-                player.dropMessage(5, "You to " + resident.getName() + ": " + text);
-            } else {
-                scene.map.broadcastMessage(PacketCreator.getChatText(player.getId(), resident.getName() + ", " + text, false, 0));
-            }
-        }
-        ResidentDialogue.Intent intent = ResidentDialogue.intent(text);
+        ResidentDialogue.Intent intent = dialogue.intentFor(resident.getProfile(), player.getId(), text);
         ResidentRoutine routine = routines.get(resident);
         CompanionTravel currentJourney = journeys.get(player.getId());
         boolean walkingTogether = currentJourney != null && currentJourney.resident == resident && currentJourney.isFollowing();
@@ -390,9 +441,9 @@ public final class TownPopulation {
         if (intent == ResidentDialogue.Intent.FOLLOW) {
             CompanionTravel owner = journeys.values().stream().filter(j -> j.resident == resident).findFirst().orElse(null);
             if (!resident.getProfile().companion()) {
-                reply = "I'm staying around here today. MapleMia, PipArcher or Juniper might join you for a walk.";
+                reply = contextualReply;
             } else if (owner != null && owner.leader != player) {
-                reply = "I'm walking with someone right now. Catch me when we're back!";
+                reply = "running with someone rn, sry";
             } else {
                 CompanionTravel previous = journeys.get(player.getId());
                 if (previous != null && previous.resident != resident) {
@@ -412,7 +463,14 @@ public final class TownPopulation {
                 journey.stay();
                 reply = contextualReply;
             } else {
-                reply = "I'm just enjoying the view. Come find me whenever you'd like to chat.";
+                reply = "kk, chilling here";
+            }
+        } else if (intent == ResidentDialogue.Intent.MAP_SPACE) {
+            boolean reserved = journeys.values().stream().anyMatch(j -> j.resident == resident);
+            if (reserved) reply = "just here with someone. u can train";
+            else {
+                if (routine != null && !scene.map.isTown()) routine.makeRoom(now + 120_000);
+                reply = contextualReply;
             }
         } else {
             reply = contextualReply;
@@ -422,19 +480,12 @@ public final class TownPopulation {
         }
         resident.faceToward(player.getPosition());
         String answer = reply;
-        long delay = ResidentSocial.replyDelay(resident.getProfile(), answer, scene.sequence++);
-        scene.speechUntil.put(resident.getId(), now + delay + 2500);
+        scene.speechUntil.put(resident.getId(), now + 1800);
         if (routine != null) {
-            routine.conversation(now + delay + 2500);
+            routine.conversation(now + 1800);
         }
-        simulation.schedule(() -> {
-            if (resident.getMap() == scene.map && scene.residents.contains(resident)
-                    && scene.isCurrentVisit(player, visit) && nearby(resident, player) && !scene.map.isMuted()) {
-                resident.faceToward(player.getPosition());
-                resident.say(answer);
-                scene.lastSpeech = System.currentTimeMillis();
-            }
-        }, delay, TimeUnit.MILLISECONDS);
+        resident.say(answer);
+        scene.lastSpeech = now;
     }
 
     private void tick() {
@@ -470,6 +521,8 @@ public final class TownPopulation {
                     scene.lastReply.clear();
                     scene.lastPartner.clear();
                     scene.observedLevels.clear();
+                    scene.pendingReplies.clear();
+                    scene.latestMovement.clear();
                 }
                 for (TownResident resident : scene.residents) {
                     if (resident.getMap() != scene.map) {
@@ -679,6 +732,9 @@ public final class TownPopulation {
         final Map<Integer, Long> visits = new HashMap<>();
         final Map<Integer, Long> speechUntil = new HashMap<>();
         final Map<Integer, Integer> observedLevels = new HashMap<>();
+        final Map<Integer, PendingReply> pendingReplies = new HashMap<>();
+        final Map<Integer, Long> latestMovement = new HashMap<>();
+        long movementSequence;
         final Random random;
         long nextAmbient;
         long lastSpeech;
