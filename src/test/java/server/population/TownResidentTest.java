@@ -20,6 +20,22 @@ import static org.mockito.Mockito.*;
 
 class TownResidentTest {
     @Test
+    void stalePlacementSnapshotsCannotRespawnARetiredActor() {
+        Fixture fixture = fixture(List.of(new Surface(1, 0, 100, 600, 100)), List.of(), new Point(30, 100));
+        TownResident resident = fixture.resident();
+        client.Client client = mock(client.Client.class);
+        resident.sendSpawnData(client);
+        resident.setFollowTarget(new Point(400, 100));
+        resident.retire();
+        resident.sendSpawnData(client);
+        Point retiredAt = resident.getPosition();
+        resident.tick(1000);
+        resident.tick(2000);
+        assertEquals(retiredAt, resident.getPosition());
+        verify(client, times(1)).sendPacket(any(Packet.class));
+    }
+
+    @Test
     void followsConnectedSlopedGroundAtCatchUpSpeedAndKeepsCompanionDistance() {
         Fixture fixture = fixture(List.of(new Surface(1, 0, 100, 100, 120),
                 new Surface(2, 100, 120, 600, 120)), List.of(), new Point(30, 100));

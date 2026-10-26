@@ -50,15 +50,19 @@ The project follows the [semantic versioning](https://semver.org/) scheme using 
 
 ## Getting started
 
-### Living Henesys
+### Living world
 
-Henesys has 20 stable town identities and eight additional hunters in The Hill
-East of Henesys and Pig Park. Town residents walk to places, browse near NPCs,
+The world has **2,500 stable simulated identities** by default, distributed over
+66 reviewed towns and fields across 11 regions and the configured channels.
+Each identity has a stable name, appearance, class, voice, and regional schedule.
+The original 20 Henesys residents and eight hunters in The Hill East of Henesys
+and Pig Park live on channel 1. Town residents walk to places, browse near NPCs,
 take breaks, and occasionally talk to each other. Tobin and AshTrail make trips
 through the east portal to hunt and return. **MapleMia**, **PipArcher**, and
 **Juniper** can accompany you; they usually start near the central market street.
 
-- Type `@residents` to see nearby names and instructions.
+- Type `@residents` to see world totals, fully active/background counts, nearby
+  names, and the measured resident tick time.
 - Double-click a nearby resident to say hello.
 - Say `MapleMia, hello` in normal chat, or use `@talk MapleMia hello`.
 - Talk about training, mushrooms, travel, or company. Ask `remember me` on a later
@@ -97,11 +101,49 @@ without claiming to switch channels. Actual features are still listed in
 `@residents`; ordinary dialogue stays short.
 They cannot trade, accept party invites, complete quests, or use boss mechanics.
 Scripted, closed, and event portals are excluded. Residents do not occupy player
-slots or control monsters. Ordinary activity and hunting sleep in empty maps;
-travelers can finish walking to their exit. This is a 28-identity prototype,
-not a benchmark of thousands of active bots. Following resumes by request after
-a server restart; identities and conversation memories persist, while activity
-timers, private collections, and combat health are session state.
+slots or control monsters. Up to **256 actors per server process** run full
+movement and behavior, with **48 per town and 16 per field**, including the
+original residents and traveling companions. A distinct identity cannot appear
+in two maps or channels at once. Empty scenes release actors after 20 seconds,
+or immediately when a new occupied map needs capacity. Active companions and
+residents walking through a portal finish their journeys before eviction.
+
+Other identities keep cheap schedules, updated every 30 seconds without loading
+their maps. These schedules alternate regional town visits, resting, roaming,
+and training plans over staggered 3–7 minute phases. They do not run invisible
+combat or award EXP/items. On entering a supported map, scheduled identities
+become real actors with ordinary movement, chat and combat; visible actors stay
+in place until normal travel or retirement, rather than following clock-based
+teleports. This is 2,500 scheduled identities, not 2,500 simultaneous full actors.
+Following resumes by request after a server restart; identities and conversation
+memories persist, while private collections and combat health are session state.
+
+`-Dcosmic.residents.population=2500` configures 28–10,000 stable identities;
+changing the count preserves the existing identity prefix.
+`-Dcosmic.residents.activeLimit=256` configures a process budget of 48–1,024 actors.
+Raising the budget requires fresh client/server measurements. Ellinia and Forest
+North of Ellinia are excluded from automatic population because their navigation
+graphs exceed the existing 4,000-node bound. Swimming, flying, boss/event maps and
+maps with environmental damage are also excluded from the spawn catalog.
+
+Local Java 21 measurements (2026-10-26) used 600 warmed, measured ticks of real
+town routines, navigation, and packet serialization. These include natural
+idle/rest periods and mock map-call overhead; they exclude sockets, combat,
+ambient dialogue and client rendering. Run `bash macos/benchmark-residents.sh`
+to reproduce this workload; it creates no accounts or server connections.
+
+| Full actors / scenes | Tick p95 | Tick maximum | Movement payload per observer |
+| --- | --- | --- | --- |
+| 48 / 1 | 0.313 ms | 0.644 ms | 897 bytes/s |
+| 128 / 4 | 0.713 ms | 1.898 ms | 560–665 bytes/s |
+| 256 / 6 | 1.290 ms | 2.369 ms | 820–1,058 bytes/s |
+
+All three workloads completed without navigation recovery warps. Separately,
+5,000 warmed background schedule updates per fresh JVM measured p95 costs of
+0.005 / 0.022 / 0.051 / 0.191 ms for 100 / 1,000 / 2,500 / 10,000 identities.
+These updates normally run once every 30 seconds. The incremental retained
+schedule model at 2,500 identities was approximately 446 KB after GC, excluding
+profiles, loaded maps, navigation, foreground actors and the rest of the server.
 
 Navigation uses static footholds, ladders and ropes. Swimming, flight, and moving
 platforms are not yet supported. The Henesys-to-field round trip is covered by

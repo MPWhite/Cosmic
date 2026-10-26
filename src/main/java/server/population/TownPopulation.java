@@ -33,6 +33,8 @@ public final class TownPopulation {
     private static final boolean ENABLED = Boolean.parseBoolean(System.getProperty("cosmic.residents.enabled", "true"));
     private static final int ACTOR_ID_BASE = 1_800_000_000;
     private static final double TALK_RANGE_SQUARED = 650 * 650;
+    static final int MAX_ACTIVE = Math.max(48, Math.min(1024, Integer.getInteger("cosmic.residents.activeLimit", 256)));
+    private static final long EMPTY_SCENE_GRACE = 20_000;
     // Homes remain stable across visits and restarts. Main-street seeds skip raised benches.
     private static final int[][] HOMES = {
             {2820, 330}, {3000, 330}, {3200, 330}, {2490, 330}, {2610, 330},
@@ -44,6 +46,7 @@ public final class TownPopulation {
     private final Map<MapleMap, Scene> scenes = new ConcurrentHashMap<>();
     private final Map<Integer, CompanionTravel> journeys = new ConcurrentHashMap<>();
     private final Map<TownResident, ResidentRoutine> routines = new ConcurrentHashMap<>();
+    private final Map<Integer, ResidentWorld> worlds = new ConcurrentHashMap<>();
     private final Set<Integer> introduced = ConcurrentHashMap.newKeySet();
     private final ResidentSocial social = new ResidentSocial();
     private final ScheduledExecutorService simulation = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -64,7 +67,9 @@ public final class TownPopulation {
         private static final TownPopulation INSTANCE = new TownPopulation();
     }
 
-    private TownPopulation() {
+    private record LoadedMemory(ResidentMemoryStore store, boolean persistent) { }
+
+    private static LoadedMemory loadMemories() {
         ResidentMemoryStore store;
         boolean loaded = true;
         try {
@@ -74,19 +79,33 @@ public final class TownPopulation {
             store = ResidentMemoryStore.inMemory();
             loaded = false;
         }
-        memories = store;
-        persistent = loaded;
+        return new LoadedMemory(store, loaded);
+    }
+
+    private TownPopulation() {
+        this(loadMemories(), true);
+    }
+
+    TownPopulation(ResidentMemoryStore store) {
+        this(new LoadedMemory(store, false), false);
+    }
+
+    private TownPopulation(LoadedMemory loaded, boolean scheduled) {
+        memories = loaded.store();
+        persistent = loaded.persistent();
         dialogue = new ResidentDialogue(memories);
-        simulation.scheduleWithFixedDelay(this::tick, 50, 50, TimeUnit.MILLISECONDS);
-        persistence.scheduleWithFixedDelay(this::saveMemories, 5, 5, TimeUnit.SECONDS);
-        Runtime.getRuntime().addShutdownHook(new Thread(this::close, "save-resident-memories"));
+        if (scheduled) {
+            simulation.scheduleWithFixedDelay(this::tick, 50, 50, TimeUnit.MILLISECONDS);
+            persistence.scheduleWithFixedDelay(this::saveMemories, 5, 5, TimeUnit.SECONDS);
+            Runtime.getRuntime().addShutdownHook(new Thread(this::close, "save-resident-memories"));
+        }
     }
 
     public static void prepare(MapleMap map) {
-        if (ENABLED && ResidentRoster.isPopulated(map.getId()) && map.getEventInstance() == null) {
+        if (ENABLED && isPopulated(map.getId()) && map.getEventInstance() == null) {
             try {
                 TownPopulation population = Holder.INSTANCE;
-                population.scenes.computeIfAbsent(map, population::newScene);
+                population.prepareScene(map, System.currentTimeMillis());
             } catch (RuntimeException failure) {
                 // Town atmosphere is optional: a bad spawn must not abort the
                 // real player's map entry or leave half a roster to duplicate.
@@ -107,7 +126,7 @@ public final class TownPopulation {
         population.submit(() -> {
             long visit = ++scene.visitSequence;
             scene.visits.put(player.getId(), visit);
-            population.simulation.schedule(() -> {
+            population.schedule(() -> {
                 if (!scene.isCurrentVisit(player, visit)) {
                     return;
                 }
@@ -134,8 +153,100 @@ public final class TownPopulation {
         });
     }
 
-    private Scene newScene(MapleMap map) {
-        return new Scene(map);
+    private static boolean isPopulated(int mapId) {
+        return ResidentCatalog.maps().stream().anyMatch(m -> m.id() == mapId);
+    }
+
+    private ResidentWorld world(MapleMap map, long now) {
+        return worlds.computeIfAbsent(map.getWorld(), id -> new ResidentWorld(ResidentCatalog.all(),
+                ResidentCatalog.maps(), Math.max(1, map.getWorldServer().getChannelsSize()), now));
+    }
+
+    synchronized void prepareScene(MapleMap map, long now) {
+        if (map.getEventInstance() != null || !isPopulated(map.getId())) return;
+        evictEmptyScenes(now, true);
+        Scene scene = scenes.get(map);
+        if (scene != null) {
+            scene.lastOccupied = now;
+            return; // Refill on the simulation thread so existing observers also receive new spawns.
+        }
+        scene = new Scene(map);
+        scenes.put(map, scene);
+        scene.lastOccupied = now;
+        materialize(scene, now, false, scene.limit);
+    }
+
+    private void materialize(Scene scene, long now, boolean broadcast, int batch) {
+        if (!isPopulated(scene.map.getId()) || scene.residents.size() >= scene.limit || routines.size() >= MAX_ACTIVE) return;
+        ResidentWorld world = world(scene.map, now);
+        int channel = scene.map.getChannelServer().getId();
+        List<Point> anchors = scene.map.getAllPlayers().stream().sorted(Comparator.comparingInt(Character::getId))
+                .map(Character::getPosition).toList();
+        if (anchors.isEmpty()) anchors = scene.map.getPortals().stream().filter(p -> p.getType() == 0)
+                .sorted(Comparator.comparingInt(Portal::getId)).map(Portal::getPosition).toList();
+        int added = 0;
+        List<ResidentWorld.Presence> candidates = world.candidates(scene.map.getId(), channel, now).stream()
+                .sorted(Comparator.comparingInt(p -> p.profile().id())).toList();
+        for (ResidentWorld.Presence presence : candidates) {
+            if (scene.residents.size() >= scene.limit || routines.size() >= MAX_ACTIVE || added >= batch) break;
+            var profile = presence.profile();
+            if (!world.claim(profile.id(), scene.map.getId(), channel)) continue;
+            TownResident resident = null;
+            try {
+                Point spawn;
+                if (profile.id() <= 20) spawn = new Point(HOMES[profile.id() - 1][0], HOMES[profile.id() - 1][1]);
+                else if (profile.id() <= 28) spawn = ResidentRoster.forMap(scene.map.getId()).stream()
+                        .filter(p -> p.profile().id() == profile.id()).findFirst().orElseThrow().position();
+                else spawn = ResidentSpawns.choose(CompanionNavigation.forMap(scene.map), anchors, profile.id());
+                resident = new TownResident(ACTOR_ID_BASE + profile.id(), profile, scene.map, spawn);
+                scene.map.addMapObject(resident);
+                ResidentRoutine routine = new ResidentRoutine(resident, this::transferResident);
+                if (profile.id() > 28) routine.resumeBackground(presence.activity(), now);
+                routines.put(resident, routine);
+                scene.residents.add(resident);
+                if (broadcast) scene.map.broadcastMessage(ResidentPackets.spawn(resident));
+                added++;
+            } catch (RuntimeException failure) {
+                if (resident != null) {
+                    resident.retire();
+                    scene.residents.remove(resident);
+                    ResidentRoutine routine = routines.remove(resident);
+                    if (routine != null) routine.close();
+                    if (scene.map.getMapObject(resident.getObjectId()) == resident) scene.map.removeMapObject(resident.getObjectId());
+                }
+                world.release(profile.id(), now);
+                log.warn("Unable to materialize resident {} in map {}", profile.name(), scene.map.getId(), failure);
+                break; // Invalid geometry should not repeat thousands of times on one map entry.
+            }
+        }
+    }
+
+    private void retire(Scene scene, TownResident resident, long now) {
+        synchronized (resident) {
+            resident.retire();
+            ResidentRoutine routine = routines.remove(resident);
+            if (routine != null) routine.close();
+            scene.map.broadcastMessage(ResidentPackets.remove(resident.getId()));
+            scene.map.removeMapObject(resident.getObjectId());
+            scene.residents.remove(resident);
+            scene.pendingReplies.remove(resident.getId());
+            scene.speechUntil.remove(resident.getId());
+            scene.lastPartner.values().removeIf(id -> id == resident.getId());
+            world(scene.map, now).release(resident.getProfile().id(), now);
+        }
+    }
+
+    private void evictEmptyScenes(long now, boolean reclaim) {
+        Set<TownResident> travelling = new java.util.HashSet<>();
+        journeys.values().forEach(j -> travelling.add(j.resident));
+        for (Scene scene : List.copyOf(scenes.values())) {
+            if (!scene.map.getAllPlayers().isEmpty()) continue;
+            if (scene.residents.stream().anyMatch(r -> travelling.contains(r)
+                    || routines.containsKey(r) && routines.get(r).travelling())) continue;
+            if (now - scene.lastOccupied < EMPTY_SCENE_GRACE && !(reclaim && routines.size() >= MAX_ACTIVE)) continue;
+            for (TownResident resident : List.copyOf(scene.residents)) retire(scene, resident, now);
+            scenes.remove(scene.map, scene);
+        }
     }
 
     public static void onLeave(Character player) {
@@ -198,12 +309,19 @@ public final class TownPopulation {
         });
     }
 
-    private void transferResident(TownResident resident, MapleMap destination, Point arrival) {
+    private synchronized void transferResident(TownResident resident, MapleMap destination, Point arrival) {
         // Project the destination before removing anything from the source map.
         CompanionNavigation navigation = CompanionNavigation.forMap(destination);
         Point safe = navigation.groundBelow(new Point(arrival.x, arrival.y - 8), 600)
                 .or(() -> navigation.project(arrival, 160)).orElseThrow(() -> new IllegalArgumentException("No landing near portal " + arrival)).position();
         Scene next = scenes.computeIfAbsent(destination, Scene::new);
+        if (next.residents.size() >= next.limit) {
+            TownResident replace = next.residents.stream().filter(r -> r != resident && !r.getProfile().companion())
+                    .filter(r -> journeys.values().stream().noneMatch(j -> j.resident == r))
+                    .max(Comparator.comparingInt(r -> r.getProfile().id())).orElse(null);
+            if (replace == null) throw new IllegalStateException("No resident capacity at destination");
+            retire(next, replace, System.currentTimeMillis());
+        }
         synchronized (resident) {
             MapleMap source = resident.getMap();
             Scene previous = scenes.get(source);
@@ -226,6 +344,8 @@ public final class TownPopulation {
                     next.visits.computeIfAbsent(observer.getId(), id -> ++next.visitSequence);
                 }
                 destination.broadcastMessage(ResidentPackets.spawn(resident));
+                world(destination, System.currentTimeMillis()).moveClaim(resident.getProfile().id(), destination.getId(),
+                        destination.getChannelServer().getId());
                 log.info("Resident {} traveled from {} to {}", resident.getName(), source.getId(), destination.getId());
             } catch (RuntimeException failure) {
                 if (destination.getMapObject(resident.getObjectId()) == resident) {
@@ -240,7 +360,7 @@ public final class TownPopulation {
                 source.broadcastMessage(ResidentPackets.spawn(resident));
                 throw failure;
             }
-            if (previous != null && previous.residents.isEmpty() && !ResidentRoster.isPopulated(source.getId())) {
+            if (previous != null && previous.residents.isEmpty() && !isPopulated(source.getId())) {
                 scenes.remove(source, previous);
             }
         }
@@ -251,12 +371,20 @@ public final class TownPopulation {
             player.dropMessage(5, "Town residents are disabled on this server.");
             return;
         }
-        Scene scene = Holder.INSTANCE.scenes.get(player.getMap());
+        TownPopulation population = Holder.INSTANCE;
+        ResidentWorld world = population.world(player.getMap(), System.currentTimeMillis());
+        var performance = ResidentPopulationMetrics.snapshot();
+        player.dropMessage(5, "World population: " + world.total() + " simulated identities; " + world.claimedCount()
+                + " fully active, " + (world.total() - world.claimedCount()) + " on background schedules.");
+        player.dropMessage(5, "Server active budget: " + population.routines.size() + "/" + MAX_ACTIVE
+                + ". Resident tick p95: " + String.format(Locale.ROOT, "%.2f", performance.p95Millis()) + " ms.");
+        Scene scene = population.scenes.get(player.getMap());
         if (scene == null || scene.residents.isEmpty()) {
             player.dropMessage(5, "Meet companions in Henesys, then ask one to follow you into the fields.");
             return;
         }
-        player.dropMessage(5, "Simulated adventurers here: " + scene.residents.size() + ". Companions: MapleMia, PipArcher, Juniper.");
+        player.dropMessage(5, "Simulated adventurers here: " + scene.residents.size() + "/" + scene.limit
+                + ". Companions: MapleMia, PipArcher, Juniper in Henesys CH1.");
         String names = scene.residents.stream().filter(r -> nearby(r, player)).map(TownResident::getName)
                 .reduce((a, b) -> a + ", " + b).orElse("Walk toward the market to meet someone.");
         player.dropMessage(5, "Nearby: " + names);
@@ -401,7 +529,7 @@ public final class TownPopulation {
         ResidentRoutine routine = routines.get(resident);
         if (routine != null) routine.conversation(now + delay + 1800);
         resident.faceToward(player.getPosition());
-        simulation.schedule(() -> {
+        schedule(() -> {
             if (scene.pendingReplies.remove(resident.getId(), queued) && scene.isCurrentVisit(player, queued.visit())) {
                 String latest = queued.turn().message();
                 ResidentDialogue.Intent command = dialogue.intentFor(resident.getProfile(), player.getId(), latest);
@@ -489,7 +617,19 @@ public final class TownPopulation {
     }
 
     private void tick() {
-        long now = System.currentTimeMillis();
+        long start = System.nanoTime();
+        try {
+            tick(System.currentTimeMillis());
+        } catch (RuntimeException failure) {
+            log.error("Resident population tick failed; retrying next tick", failure);
+        } finally {
+            ResidentPopulationMetrics.recordTick(System.nanoTime() - start);
+        }
+    }
+
+    synchronized void tick(long now) {
+        worlds.values().forEach(world -> world.tick(now));
+        evictEmptyScenes(now, false);
         for (CompanionTravel journey : journeys.values()) {
             try {
                 ResidentRoutine routine = routines.get(journey.resident);
@@ -511,11 +651,11 @@ public final class TownPopulation {
                 }
             }
         }
+        Map<TownResident, CompanionTravel> owned = new HashMap<>();
+        journeys.values().forEach(j -> owned.put(j.resident, j));
         for (Scene scene : scenes.values()) {
             try {
                 List<Character> players = scene.map.getAllPlayers();
-                Map<TownResident, CompanionTravel> owned = new HashMap<>();
-                journeys.values().forEach(j -> owned.put(j.resident, j));
                 if (players.isEmpty()) {
                     scene.visits.clear();
                     scene.lastReply.clear();
@@ -523,6 +663,12 @@ public final class TownPopulation {
                     scene.observedLevels.clear();
                     scene.pendingReplies.clear();
                     scene.latestMovement.clear();
+                } else {
+                    scene.lastOccupied = now;
+                    if (now >= scene.nextPopulation) {
+                        materialize(scene, now, true, 4);
+                        scene.nextPopulation = now + 2_000;
+                    }
                 }
                 for (TownResident resident : scene.residents) {
                     if (resident.getMap() != scene.map) {
@@ -605,7 +751,7 @@ public final class TownPopulation {
             speaker.say(exchange.opener());
             social.recordSpeech(speaker.getId(), exchange.opener(), now);
             scene.lastSpeech = now;
-            simulation.schedule(() -> {
+            schedule(() -> {
                 if (speaker.getMap() == scene.map && partner.getMap() == scene.map && !scene.map.isMuted()
                         && !scene.map.getAllPlayers().isEmpty()
                         && speaker.getPosition().distanceSq(partner.getPosition()) < 270 * 270
@@ -701,8 +847,16 @@ public final class TownPopulation {
         }
     }
 
-    private void close() {
-        submit(() -> routines.values().forEach(ResidentRoutine::close));
+    void close() {
+        submit(() -> {
+            synchronized (this) {
+                long now = System.currentTimeMillis();
+                for (Scene scene : List.copyOf(scenes.values())) {
+                    for (TownResident resident : List.copyOf(scene.residents)) retire(scene, resident, now);
+                }
+                scenes.clear();
+            }
+        });
         simulation.shutdown();
         persistence.shutdown();
         try {
@@ -716,11 +870,27 @@ public final class TownPopulation {
 
     private void submit(Runnable action) {
         try {
-            simulation.execute(action);
+            simulation.execute(serialized(action));
         } catch (RejectedExecutionException stopped) {
             if (!simulation.isShutdown()) {
                 throw stopped;
             }
+        }
+    }
+
+    private Runnable serialized(Runnable action) {
+        return () -> {
+            synchronized (this) {
+                action.run();
+            }
+        };
+    }
+
+    private void schedule(Runnable action, long delay, TimeUnit unit) {
+        try {
+            simulation.schedule(serialized(action), delay, unit);
+        } catch (RejectedExecutionException stopped) {
+            if (!simulation.isShutdown()) throw stopped;
         }
     }
 
@@ -736,6 +906,9 @@ public final class TownPopulation {
         final Map<Integer, Long> latestMovement = new HashMap<>();
         long movementSequence;
         final Random random;
+        final int limit;
+        long lastOccupied = System.currentTimeMillis();
+        long nextPopulation;
         long nextAmbient;
         long lastSpeech;
         long sequence;
@@ -745,9 +918,9 @@ public final class TownPopulation {
             this.map = map;
             random = new Random(map.getId() * 31L + map.getChannelServer().getId());
             nextAmbient = System.currentTimeMillis() + 25_000 + random.nextInt(25_000);
-            residents = new CopyOnWriteArrayList<>(map.getId() == HENESYS ? createResidents(map) : createHunters(map));
-            residents.forEach(r -> routines.put(r, new ResidentRoutine(r, TownPopulation.this::transferResident)));
-            log.info("Prepared resident scene {} with {} residents", map.getId(), residents.size());
+            limit = ResidentCatalog.maps().stream().filter(m -> m.id() == map.getId())
+                    .mapToInt(ResidentCatalog.MapSpec::capacity).findFirst().orElse(16);
+            residents = new CopyOnWriteArrayList<>();
         }
 
         boolean isCurrentVisit(Character player, Long visit) {

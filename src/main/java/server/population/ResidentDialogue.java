@@ -202,7 +202,11 @@ public final class ResidentDialogue {
     }
 
     public static Intent intent(String message) {
-        return switch (ResidentChatInput.parse(message, "", ADDRESSES).intent()) {
+        return intent(ResidentChatInput.parse(message, "", ADDRESSES));
+    }
+
+    private static Intent intent(ResidentChatInput input) {
+        return switch (input.intent()) {
             case FOLLOW -> Intent.FOLLOW;
             case STAY -> Intent.STOP_FOLLOWING;
             case GOODBYE -> Intent.FAREWELL;
@@ -217,11 +221,12 @@ public final class ResidentDialogue {
 
     public synchronized Intent intentFor(ResidentProfiles.Profile resident, int playerId, String message) {
         Turn turn = turns.get(new Conversation(resident.id(), playerId));
+        ResidentChatInput input = ResidentChatInput.parse(message, resident.name(), ADDRESSES);
         if (turn != null && clock.millis() - turn.lastAt <= 90_000
-                && acceptsOffer(turn, ResidentChatInput.parse(message, resident.name(), ADDRESSES))) {
+                && acceptsOffer(turn, input)) {
             return Intent.FOLLOW;
         }
-        return intent(message);
+        return intent(input);
     }
 
     private static boolean acceptsOffer(Turn turn, ResidentChatInput input) {

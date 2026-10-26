@@ -48,6 +48,7 @@ public final class TownResident extends AbstractMapObject {
     private boolean walkOnlyRoute;
     private boolean settling;
     private boolean waiting;
+    private boolean retired;
     private boolean keepFollowDistance = true;
     private String navigationStatus = "wandering";
 
@@ -171,10 +172,16 @@ public final class TownResident extends AbstractMapObject {
 
     @Override
     public synchronized void sendSpawnData(Client client) {
+        if (retired) return;
         if (client.getPlayer() != null && client.getPlayer().getMap() != map) {
             return;
         }
         client.sendPacket(ResidentPackets.spawn(this));
+    }
+
+    /** A retired instance cannot be republished by a stale map-placement snapshot. */
+    synchronized void retire() {
+        retired = true;
     }
 
     @Override
@@ -282,6 +289,7 @@ public final class TownResident extends AbstractMapObject {
 
     /** Called by the shared population scheduler; no task or thread per resident. */
     public synchronized void tick(long nowMillis) {
+        if (retired) return;
         if (lastTick == 0) {
             lastTick = nowMillis;
             nextDecision = nowMillis + 1000 + random.nextInt(6000);

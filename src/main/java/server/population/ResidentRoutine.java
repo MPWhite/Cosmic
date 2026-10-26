@@ -154,7 +154,7 @@ final class ResidentRoutine {
             }
             return;
         }
-        if (resident.getMap().getId() != TownPopulation.HENESYS) {
+        if (!resident.getMap().isTown() && resident.getMap().getId() != TownPopulation.HENESYS) {
             tickField(now);
             return;
         }
@@ -164,6 +164,20 @@ final class ResidentRoutine {
         if (now >= decisionAt) {
             chooseTownActivity(now);
         }
+    }
+
+    /** Continue the inexpensive world schedule when this identity gains a visible actor. */
+    void resumeBackground(ResidentWorld.Activity background, long now) {
+        initialized = true;
+        suspended = false;
+        boolean town = resident.getMap().isTown() || resident.getMap().getId() == TownPopulation.HENESYS;
+        activity = switch (background) {
+            case TRAIN -> town ? Activity.IDLE : Activity.TRAINING;
+            case REST -> Activity.RESTING;
+            default -> Activity.IDLE;
+        };
+        decisionAt = now + 5_000 + random.nextInt(25_000);
+        resident.waitHere();
     }
 
     private void tickField(long now) {
