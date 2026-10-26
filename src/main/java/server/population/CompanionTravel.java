@@ -3,6 +3,7 @@ package server.population;
 import client.Character;
 import server.maps.MapleMap;
 import server.maps.Portal;
+import server.population.navigation.CompanionNavigation;
 
 import java.awt.Point;
 import java.util.ArrayDeque;
@@ -27,6 +28,8 @@ final class CompanionTravel {
     private long mismatchSince;
     private long crossingSince;
     private boolean returned;
+    private MapleMap lastTargetMap;
+    private Point lastFollowTarget;
 
     CompanionTravel(Character leader, TownResident resident, Transfer transfer) {
         this.leader = leader;
@@ -115,9 +118,33 @@ final class CompanionTravel {
                 leader.dropMessage(5, resident.getName() + " followed you through the portal.");
             }
         } else {
-            resident.setFollowTarget(leader.getPosition());
+            resident.setFollowTarget(followTarget());
         }
         return true;
+    }
+
+    private Point followTarget() {
+        MapleMap currentMap = leader.getMap();
+        if (lastTargetMap != currentMap) {
+            lastTargetMap = currentMap;
+            lastFollowTarget = null;
+        }
+        Point position = leader.getPosition();
+        Point target = position;
+        if ((leader.getStance() & ~1) == 6) {
+            // Knockback can lift a player closer to the underside of another
+            // platform without clearing it. Follow the landing surface below
+            // their feet, not the nearest platform above them. Actual jumps
+            // select the upper platform once the player's feet have cleared it.
+            target = CompanionNavigation.forMap(currentMap)
+                    .groundBelow(new Point(position.x, position.y - 3), 600)
+                    .map(CompanionNavigation.Ground::position)
+                    .orElseGet(() -> lastFollowTarget == null ? resident.getPosition() : new Point(lastFollowTarget));
+        }
+        // Ladder and rope coordinates remain live targets; their grounded
+        // route endpoints are selected by the navigation planner as before.
+        lastFollowTarget = new Point(target);
+        return target;
     }
 
     void returnHome() {
