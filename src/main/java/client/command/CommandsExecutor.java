@@ -224,11 +224,17 @@ public class CommandsExecutor {
     }
 
     public static boolean isCommand(Client client, String content) {
-        char heading = content.charAt(0);
-        if (client.getPlayer().isGM()) {
-            return heading == USER_HEADING || heading == GM_HEADING;
+        if (content.isEmpty()) {
+            return false;
         }
-        return heading == USER_HEADING;
+        char heading = content.charAt(0);
+        if (heading == '/' || heading == USER_HEADING) {
+            return true;
+        }
+        if (client.getPlayer().isGM()) {
+            return heading == GM_HEADING;
+        }
+        return false;
     }
 
     private CommandsExecutor() {

@@ -25,18 +25,17 @@ package client.command.commands.gm2;
 
 import client.Character;
 import client.Client;
-import client.SkillFactory;
 import client.command.Command;
 
 public class UnHideCommand extends Command {
     {
-        setDescription("Toggle Hide.");
+        setDescription("Become visible to players.");
     }
 
     @Override
     public void execute(Client c, String[] params) {
         Character player = c.getPlayer();
-        SkillFactory.getSkill(9101004).getEffect(SkillFactory.getSkill(9101004).getMaxLevel()).applyTo(player);
-
+        player.Hide(false);
+        player.yellowMessage("You are now visible to other players.");
     }
 }
