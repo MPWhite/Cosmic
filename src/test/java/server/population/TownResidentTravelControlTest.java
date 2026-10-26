@@ -16,6 +16,40 @@ import static org.mockito.Mockito.when;
 
 class TownResidentTravelControlTest {
     @Test
+    void canHoldRopeAndLeaveItWithoutFallingOrTeleporting() {
+        var surfaces = List.of(new CompanionNavigation.Surface(1, 0, 300, 400, 300),
+                new CompanionNavigation.Surface(2, 0, 0, 400, 0));
+        var navigation = CompanionNavigation.of(surfaces,
+                List.of(new CompanionNavigation.Climb(1, 100, 0, 300, true)));
+        MapleMap map = mock(MapleMap.class);
+        FootholdTree footholds = new FootholdTree(new Point(-1000, -1000), new Point(1000, 1000));
+        for (var surface : surfaces) footholds.insert(new Foothold(new Point(surface.x1(), surface.y1()),
+                new Point(surface.x2(), surface.y2()), surface.id()));
+        when(map.getFootholds()).thenReturn(footholds);
+        TownResident resident = new TownResident(1_500_000_001, ResidentProfiles.all().getFirst(), map,
+                new Point(20, 300), navigation);
+        Point middle = new Point(100, 120);
+        resident.setClimbTarget(middle);
+        for (int now = 1000; now < 15_000; now += 50) resident.tick(now);
+        assertEquals(middle, resident.getPosition());
+        assertTrue(resident.isHoldingClimb());
+        assertEquals(16, resident.getStance());
+        resident.waitHere();
+        for (int now = 15_000; now < 20_000; now += 50) resident.tick(now);
+        assertEquals(middle, resident.getPosition());
+        resident.setFollowTarget(new Point(350, 300), false);
+        Point previous = resident.getPosition();
+        for (int now = 20_000; now < 30_000; now += 50) {
+            resident.tick(now);
+            assertTrue(Math.abs(previous.x - resident.getPosition().x) <= 10, "rope departure must stay continuous horizontally");
+            assertTrue(previous.distance(resident.getPosition()) < 100, "bounded fall must not teleport");
+            previous = resident.getPosition();
+        }
+        assertTrue(resident.getPosition().distance(new Point(350, 300)) <= 5);
+        assertEquals(0, resident.getRecoveryCount());
+    }
+
+    @Test
     void unreachablePortalApproachDoesNotUseTheLocalLeaderRecovery() {
         var surfaces = List.of(new CompanionNavigation.Surface(1, 0, 100, 200, 100),
                 new CompanionNavigation.Surface(2, 1000, 100, 1400, 100));

@@ -987,6 +987,7 @@ public class World {
 
         for (PartyCharacter partychar : partyMembers) {
             Character chr = getPlayerStorage().getCharacterById(partychar.getId());
+            if (chr == null) chr = server.population.party.ResidentPartyCharacter.find(partychar.getId());
             if (chr != null) {
                 if (operation == PartyOperation.DISBAND) {
                     chr.setParty(null);
@@ -1002,6 +1003,7 @@ public class World {
             case LEAVE:
             case EXPEL:
                 Character chr = getPlayerStorage().getCharacterById(target.getId());
+                if (chr == null) chr = server.population.party.ResidentPartyCharacter.find(target.getId());
                 if (chr != null) {
                     chr.sendPacket(PacketCreator.updateParty(chr.getClient().getChannel(), party, operation, target));
                     chr.setParty(null);

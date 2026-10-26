@@ -40,7 +40,7 @@ public final class GiveFameHandler extends AbstractPacketHandler {
         int mode = p.readByte();
         int famechange = 2 * mode - 1;
         Character player = c.getPlayer();
-        if (target == null || target.getId() == player.getId() || player.getLevel() < 15) {
+        if (target == null || target.isResidentBot() || target.getId() == player.getId() || player.getLevel() < 15) {
             return;
         } else if (famechange != 1 && famechange != -1) {
             AutobanFactory.PACKET_EDIT.alert(c.getPlayer(), c.getPlayer().getName() + " tried to packet edit fame.");

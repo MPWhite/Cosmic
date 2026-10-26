@@ -50,6 +50,7 @@ public final class TownResident extends AbstractMapObject {
     private boolean waiting;
     private boolean retired;
     private boolean keepFollowDistance = true;
+    private boolean climbTarget;
     private String navigationStatus = "wandering";
 
     private static final long REPLAN_INTERVAL = 350;
@@ -138,6 +139,7 @@ public final class TownResident extends AbstractMapObject {
         settling = false;
         waiting = false;
         keepFollowDistance = true;
+        climbTarget = false;
         navigation = null;
         route.clear();
         activeLeg = null;
@@ -196,6 +198,11 @@ public final class TownResident extends AbstractMapObject {
 
     /** Portal approaches need their actual endpoint, rather than the usual companion spacing. */
     public synchronized void setFollowTarget(Point target, boolean keepDistance) {
+        if (climbTarget) {
+            climbTarget = false;
+            plannedTarget = null;
+            nextPlan = 0;
+        }
         if (following == null) {
             if (!isTraversing() && footholdId != 0) {
                 route.clear();
@@ -217,14 +224,36 @@ public final class TownResident extends AbstractMapObject {
         following = new Point(Objects.requireNonNull(target));
     }
 
+    /** Explicit rope destinations are used by party puzzles and retain the hanging stance. */
+    public synchronized void setClimbTarget(Point target) {
+        boolean changed = !climbTarget || following == null || !following.equals(target);
+        following = new Point(Objects.requireNonNull(target));
+        climbTarget = true;
+        keepFollowDistance = false;
+        settling = false;
+        waiting = false;
+        if (changed) {
+            plannedTarget = null;
+            nextPlan = 0;
+        }
+    }
+
+    public synchronized boolean isHoldingClimb() {
+        return activeLeg == null && footholdId == 0 && (stance == 14 || stance == 16);
+    }
+
     public synchronized void clearFollowTarget() {
         following = null;
         waiting = false;
         plannedTarget = null;
         nextPlan = 0;
         nextDecision = 0;
-        // Finish an airborne/climbing leg before standing; never freeze a companion mid-jump.
-        if (isTraversing() || footholdId == 0) {
+        // A deliberately held rope is already a safe stopping place.
+        if (isHoldingClimb()) {
+            route.clear();
+            settling = false;
+            waiting = true;
+        } else if (isTraversing() || footholdId == 0) {
             settling = true;
         } else {
             route.clear();
@@ -279,6 +308,20 @@ public final class TownResident extends AbstractMapObject {
         pauseUntil = now + Math.max(1, durationMillis);
         broadcastMovement(new Point(), 100);
         return true;
+    }
+
+    /** Apply ordinary hit movement without allowing a recovery teleport or crossing solid ground. */
+    public synchronized void knockback(int direction, long now) {
+        if (isTraversing() || footholdId == 0) return;
+        if (navigation == null) navigation = CompanionNavigation.forMap(map);
+        Optional<Leg> knocked = navigation.knockback(getPosition(), direction);
+        if (knocked.isEmpty()) return;
+        route.clear();
+        plannedTarget = null;
+        nextPlan = 0;
+        pauseUntil = now;
+        settling = true;
+        beginLeg(knocked.get());
     }
 
     public synchronized void emote(int expression) {
@@ -388,10 +431,16 @@ public final class TownResident extends AbstractMapObject {
         }
 
         // Once committed to a jump or ladder, reach its safe endpoint before choosing another route.
-        if (!isTraversing() && footholdId != 0 && nowMillis >= nextPlan
+        if (!isTraversing() && (footholdId != 0 || isHoldingClimb()) && nowMillis >= nextPlan
                 && (plannedTarget == null || plannedTarget.distanceSq(following) > 24 * 24
                 || activeLeg == null && route.isEmpty())) {
             replan(nowMillis);
+        }
+
+        if (climbTarget && isHoldingClimb() && getPosition().distanceSq(following) <= 1) {
+            route.clear();
+            navigationStatus = "holding rope";
+            return;
         }
 
         int arrivalDistance = keepFollowDistance ? FOLLOW_DISTANCE : 5;
@@ -453,7 +502,10 @@ public final class TownResident extends AbstractMapObject {
     private void replan(long nowMillis) {
         nextPlan = nowMillis + REPLAN_INTERVAL;
         plannedTarget = new Point(following);
-        Optional<List<Leg>> planned = navigation.plan(getPosition(), following);
+        Optional<List<Leg>> planned = climbTarget
+                ? navigation.planToClimb(getPosition(), following, isHoldingClimb())
+                : isHoldingClimb() ? navigation.planFromClimb(getPosition(), following)
+                : navigation.plan(getPosition(), following);
         route.clear();
         activeLeg = null;
         legElapsed = 0;
@@ -497,7 +549,8 @@ public final class TownResident extends AbstractMapObject {
             walking = false;
             stance = footholdId != 0 ? 4 | facing
                     : !route.isEmpty() && route.peekFirst().kind() == CompanionNavigation.Kind.CLIMB
-                    ? route.peekFirst().rope() ? 16 : 14 : 6 | facing;
+                    ? route.peekFirst().rope() ? 16 : 14
+                    : leg.kind() == CompanionNavigation.Kind.CLIMB ? leg.rope() ? 16 : 14 : 6 | facing;
             walkOnlyRoute = route.stream().allMatch(TownResident::isWalking);
         }
         Point position = getPosition();

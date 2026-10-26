@@ -965,12 +965,20 @@ public class Client extends ChannelInboundHandlerAdapter {
     }
 
     public final void disconnect(final boolean shutdown, final boolean cashshop) {
+        if (player != null && player.isResidentBot()) {
+            server.population.party.ResidentPartyCharacter.close(player);
+            return;
+        }
         if (canDisconnect()) {
             ThreadManager.getInstance().newTask(() -> disconnectInternal(shutdown, cashshop));
         }
     }
 
     public final void forceDisconnect() {
+        if (player != null && player.isResidentBot()) {
+            server.population.party.ResidentPartyCharacter.close(player);
+            return;
+        }
         if (canDisconnect()) {
             disconnectInternal(true, false);
         }

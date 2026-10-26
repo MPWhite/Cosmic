@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -12,6 +13,28 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ResidentMonsterDamageTest {
+    @Test
+    void partyResidentsNeverBecomeClientSideMonsterControllers() {
+        Monster monster = spy(monster(100));
+        var map = mock(server.maps.MapleMap.class);
+        Character bot = player(1_600_000_001);
+        when(bot.isResidentBot()).thenReturn(true);
+        when(bot.isAlive()).thenReturn(true);
+        Character human = player(42);
+        when(human.isAlive()).thenReturn(true);
+        when(map.getAllPlayers()).thenReturn(List.of(bot, human));
+        monster.setMap(map);
+        doNothing().when(monster).aggroSwitchController(any(), anyBoolean());
+        monster.aggroUpdateController();
+        verify(monster).aggroSwitchController(human, false);
+        verify(monster, never()).aggroSwitchController(eq(bot), anyBoolean());
+
+        Monster noController = monster(100);
+        noController.aggroSwitchController(bot, true);
+        noController.aggroMonsterDamage(bot, 10);
+        assertNull(noController.getController(), "a socketless resident cannot take monster simulation ownership");
+    }
+
     @Test
     void residentDamageChangesHpWithoutCreatingHumanExperienceContributions() throws Exception {
         Monster monster = monster(100);

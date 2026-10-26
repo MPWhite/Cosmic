@@ -1897,7 +1897,7 @@ public class Monster extends AbstractLoadedLife {
         Character newControllerWithPuppet = null;
 
         for (Character chr : getMap().getAllPlayers()) {
-            if (!chr.isHidden()) {
+            if (!chr.isHidden() && !chr.isResidentBot()) {
                 int ctrlMonsSize = chr.getNumControlledMonsters();
 
                 if (isCharacterPuppetInVicinity(chr)) {
@@ -1960,6 +1960,8 @@ public class Monster extends AbstractLoadedLife {
      * player controller.
      */
     public void aggroSwitchController(Character newController, boolean immediateAggro) {
+        // Server-driven party members have no client to simulate monster movement.
+        if (newController != null && newController.isResidentBot()) return;
         if (aggroUpdateLock.tryLock()) {
             try {
                 Character prevController = getController();
@@ -2128,6 +2130,7 @@ public class Monster extends AbstractLoadedLife {
      * target update for the attacker shortly.
      */
     public void aggroMonsterDamage(Character attacker, int damage) {
+        if (attacker.isResidentBot()) return;
         MonsterAggroCoordinator mmac = this.getMapAggroCoordinator();
         mmac.addAggroDamage(this, attacker.getId(), damage);
 

@@ -1,5 +1,7 @@
 package server.population;
 
+import server.population.knowledge.GameKnowledge;
+
 import java.text.Normalizer;
 import java.util.Collection;
 import java.util.List;
@@ -162,6 +164,10 @@ public record ResidentChatInput(String text, Intent intent, boolean addressed, b
         // Specific social/game requests outrank greetings and laughter in the same message.
         if (anyPhrase(text, "trade", "trading", "price", "mesos", "meso", "free items", "gotpots", "got pots", "any pots", "have pots")) {
             return Intent.TRADE;
+        }
+        // A factual PQ question must never be interpreted as consent to recruit or enter an instance.
+        if (GameKnowledge.isQuestion(text) && anyPhrase(text, "kpq", "pq", "party quest", "party")) {
+            return Intent.HELP;
         }
         if (anyPhrase(text, "lfp", "lfg", "lfm", "kpq", "lpq", "opq", "hpq", "cpq", "pq", "party", "party invite")
                 || command.matches("(?:invite|inv|pt)(?: me)?")) {

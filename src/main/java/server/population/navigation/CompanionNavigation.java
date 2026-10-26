@@ -220,19 +220,48 @@ public final class CompanionNavigation {
 
     /** No path is distinct from already being there. Planning never moves an actor. */
     public Optional<List<Leg>> plan(Point start, Point target) {
-        Optional<Ground> startGround = project(start, 12);
-        Optional<Ground> targetGround = project(target, 160);
-        if (startGround.isEmpty() || targetGround.isEmpty()) {
+        return plan(start, target, false, false);
+    }
+
+    /** Reach a real ladder/rope point and remain attached there, instead of projecting to ground. */
+    public Optional<List<Leg>> planToClimb(Point start, Point target, boolean startOnClimb) {
+        return plan(start, target, startOnClimb, true);
+    }
+
+    /** Leave a held rope using its graph connections, without snapping onto nearby ground. */
+    public Optional<List<Leg>> planFromClimb(Point start, Point target) {
+        return plan(start, target, true, false);
+    }
+
+    private Optional<Climb> climbAt(Point point) {
+        return climbs.stream().filter(c -> Math.abs(c.x - point.x) <= 1
+                && point.y >= c.top && point.y <= c.bottom).findFirst();
+    }
+
+    private boolean onClimb(Node node, Climb climb) {
+        return node.position.x == climb.x && node.position.y >= climb.top - 6
+                && node.position.y <= climb.bottom + 4
+                && (node.climb == climb.id || node.foothold != 0);
+    }
+
+    private Optional<List<Leg>> plan(Point start, Point target, boolean startOnClimb, boolean targetOnClimb) {
+        Optional<Ground> startGround = startOnClimb ? Optional.empty() : project(start, 12);
+        Optional<Ground> targetGround = targetOnClimb ? Optional.empty() : project(target, 160);
+        Climb fromClimb = startOnClimb ? climbAt(start).orElse(null) : null;
+        Climb toClimb = targetOnClimb ? climbAt(target).orElse(null) : null;
+        if (startGround.isEmpty() && fromClimb == null || targetGround.isEmpty() && toClimb == null) {
             return Optional.empty();
         }
-        Ground from = startGround.get();
-        Ground to = targetGround.get();
-        if (from.position.equals(to.position)) {
-            return Optional.of(List.of());
+        Point from = startOnClimb ? new Point(fromClimb.x, start.y) : startGround.get().position;
+        Point to = targetOnClimb ? new Point(toClimb.x, target.y) : targetGround.get().position;
+        int fromFoothold = startOnClimb ? 0 : startGround.get().footholdId;
+        int toFoothold = targetOnClimb ? 0 : targetGround.get().footholdId;
+        if (from.equals(to)) return Optional.of(List.of());
+        if (fromClimb != null && toClimb != null && fromClimb.id == toClimb.id) {
+            return Optional.of(List.of(linear(Kind.CLIMB, from, to, 0, 0, fromClimb.rope)));
         }
-        if (from.footholdId == to.footholdId && clearWalk(from.position, to.position)) {
-            return Optional.of(List.of(linear(Kind.WALK, from.position, to.position,
-                    from.footholdId, to.footholdId, false)));
+        if (!startOnClimb && !targetOnClimb && fromFoothold == toFoothold && clearWalk(from, to)) {
+            return Optional.of(List.of(linear(Kind.WALK, from, to, fromFoothold, toFoothold, false)));
         }
         double[] distance = new double[nodes.size()];
         Arrays.fill(distance, Double.POSITIVE_INFINITY);
@@ -240,10 +269,15 @@ public final class CompanionNavigation {
         Arrays.fill(previous, -1);
         Leg[] incoming = new Leg[nodes.size()];
         PriorityQueue<QueueEntry> queue = new PriorityQueue<>(Comparator.comparingDouble(QueueEntry::cost));
-        for (int index : surfaceNodes.getOrDefault(from.footholdId, List.of())) {
+        for (int index = 0; index < nodes.size(); index++) {
             Node node = nodes.get(index);
-            if (clearWalk(from.position, node.position)) {
-                Leg leg = linear(Kind.WALK, from.position, node.position, from.footholdId, node.foothold, false);
+            Leg leg = null;
+            if (fromClimb != null && onClimb(node, fromClimb)) {
+                leg = linear(Kind.CLIMB, from, node.position, 0, node.foothold, fromClimb.rope);
+            } else if (!startOnClimb && node.foothold == fromFoothold && clearWalk(from, node.position)) {
+                leg = linear(Kind.WALK, from, node.position, fromFoothold, node.foothold, false);
+            }
+            if (leg != null) {
                 distance[index] = leg.durationMillis;
                 incoming[index] = leg;
                 queue.add(new QueueEntry(index, distance[index]));
@@ -255,21 +289,20 @@ public final class CompanionNavigation {
         int expanded = 0;
         while (!queue.isEmpty() && expanded < MAX_EXPANSIONS) {
             QueueEntry current = queue.poll();
-            if (current.cost != distance[current.node]) {
-                continue;
-            }
-            if (current.cost >= bestCost) {
-                break;
-            }
+            if (current.cost != distance[current.node]) continue;
+            if (current.cost >= bestCost) break;
             expanded++;
             Node node = nodes.get(current.node);
-            if (node.foothold == to.footholdId && clearWalk(node.position, to.position)) {
-                Leg finish = linear(Kind.WALK, node.position, to.position, node.foothold, to.footholdId, false);
-                if (current.cost + finish.durationMillis < bestCost) {
-                    bestCost = current.cost + finish.durationMillis;
-                    bestEnd = current.node;
-                    lastLeg = finish;
-                }
+            Leg finish = null;
+            if (toClimb != null && onClimb(node, toClimb)) {
+                finish = linear(Kind.CLIMB, node.position, to, node.foothold, 0, toClimb.rope);
+            } else if (!targetOnClimb && node.foothold == toFoothold && clearWalk(node.position, to)) {
+                finish = linear(Kind.WALK, node.position, to, node.foothold, toFoothold, false);
+            }
+            if (finish != null && current.cost + finish.durationMillis < bestCost) {
+                bestCost = current.cost + finish.durationMillis;
+                bestEnd = current.node;
+                lastLeg = finish;
             }
             for (Edge edge : edges.get(current.node)) {
                 double candidate = current.cost + cost(edge.leg);
@@ -281,16 +314,41 @@ public final class CompanionNavigation {
                 }
             }
         }
-        if (bestEnd < 0) {
-            return Optional.empty();
-        }
+        if (bestEnd < 0) return Optional.empty();
         List<Leg> reversed = new ArrayList<>();
-        for (int index = bestEnd; index >= 0; index = previous[index]) {
-            reversed.add(incoming[index]);
-        }
+        for (int index = bestEnd; index >= 0; index = previous[index]) reversed.add(incoming[index]);
         Collections.reverse(reversed);
         reversed.add(lastLeg);
         return Optional.of(compact(reversed));
+    }
+
+    /** The client's ordinary hit impulse, swept until the first real supporting surface. */
+    public Optional<Leg> knockback(Point start, int direction) {
+        Optional<Ground> ground = project(start, 3);
+        if (ground.isEmpty() || direction == 0) return Optional.empty();
+        Point from = ground.get().position();
+        Point previous = from;
+        double velocity = -437.5;
+        for (int millis = 8; millis <= 1_400; millis += 8) {
+            double seconds = millis / 1000.0;
+            Point next = new Point((int) Math.round(from.x + Math.signum(direction) * 187.5 * seconds),
+                    (int) Math.round(from.y + velocity * seconds + .5 * GRAVITY * seconds * seconds));
+            if (next.y >= previous.y && millis > 100) {
+                for (Surface surface : geometryBuckets.getOrDefault(bucket(next.x), List.of())) {
+                    if (!surface.contains(next.x)) continue;
+                    int y = (int) Math.round(surface.height(next.x));
+                    if (previous.y <= y && next.y >= y) {
+                        Point to = new Point(next.x, y);
+                        double v = (to.y - from.y - .5 * GRAVITY * seconds * seconds) / seconds;
+                        Leg leg = new Leg(Kind.JUMP, from, to, ground.get().footholdId(), surface.id,
+                                millis, false, v, GRAVITY);
+                        if (clearArc(leg)) return Optional.of(leg);
+                    }
+                }
+            }
+            previous = next;
+        }
+        return Optional.empty();
     }
 
     public int nodeCount() { return nodes.size(); }
@@ -422,6 +480,26 @@ public final class CompanionNavigation {
                 if (y >= climb.top - 6 && y <= climb.bottom + 4) {
                     stops.put(y, groundNode(surface, climb.x));
                 }
+            }
+            // Long ropes can pass beside intermediate platforms without crossing
+            // their footholds. Add one real detach point per nearby surface so a
+            // route need not climb to the endpoint before jumping onto that floor.
+            for (Surface surface : surfaces) {
+                if (surface.wall() || surface.contains(climb.x)) continue;
+                int inset = Math.min(6, (surface.right() - surface.left()) / 2);
+                int landingX = climb.x < surface.left() ? surface.left() + inset : surface.right() - inset;
+                int dx = Math.abs(landingX - climb.x);
+                if (dx > 160) continue;
+                int landingY = ground(surface, landingX).position.y;
+                double seconds = dx / MAX_HORIZONTAL_SPEED;
+                double impulse = JUMP_SPEED / 1.5;
+                int drop = (int) Math.ceil(Math.max(0, .5 * GRAVITY * seconds * seconds - impulse * seconds)) + 4;
+                int detachY = landingY - drop;
+                if (detachY < climb.top || detachY > climb.bottom) continue;
+                groundNode(surface, landingX);
+                stops.computeIfAbsent(detachY, y -> node(new Node(new Point(climb.x, y), 0, climb.id)));
+                // The ordinary airborne-edge pass still applies the reduced rope
+                // impulse, horizontal speed limit and swept obstacle/landing checks.
             }
             if (stops.isEmpty() || stops.firstKey() > climb.top + 6) {
                 stops.put(climb.top, node(new Node(new Point(climb.x, climb.top), 0, climb.id)));

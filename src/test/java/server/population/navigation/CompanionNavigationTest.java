@@ -111,6 +111,66 @@ class CompanionNavigationTest {
     }
 
     @Test
+    void tallRopeDetachesBesideAMiddlePlatformWithinNormalJumpPhysics() {
+        var navigation = CompanionNavigation.of(List.of(new Surface(1, -80, 0, 20, 0),
+                new Surface(2, 40, -450, 200, -450)), List.of(new Climb(1, 0, -1000, 0, true)));
+        var route = navigation.plan(new Point(-20, 0), new Point(150, -450)).orElseThrow();
+        assertContinuous(route, new Point(-20, 0), new Point(150, -450));
+        Leg detach = route.stream().filter(l -> l.kind() == Kind.JUMP && l.fromFoothold() == 0
+                && l.toFoothold() == 2).findFirst().orElseThrow();
+        assertTrue(detach.from().y > -600, "a middle platform must not require the rope's summit");
+        assertTrue(Math.abs(detach.verticalVelocity()) <= CompanionNavigation.JUMP_SPEED / 1.5 + 1);
+        assertEquals(CompanionNavigation.GRAVITY, detach.gravity());
+        assertTrue(Math.abs(detach.to().x - detach.from().x) * 1000.0 / detach.durationMillis()
+                <= CompanionNavigation.MAX_HORIZONTAL_SPEED);
+        assertTrue(route.stream().filter(l -> l.kind() == Kind.CLIMB).allMatch(l -> l.to().y > -600));
+        assertGroundedWalking(navigation, route);
+    }
+
+    @Test
+    void middleRopeExitsStillRespectWallsAndIntermediateFloors() {
+        var blocked = CompanionNavigation.of(List.of(new Surface(1, -80, 0, 20, 0),
+                new Surface(2, 40, -450, 200, -450), new Surface(3, 20, -1200, 20, 100)),
+                List.of(new Climb(1, 0, -1000, 0, true)));
+        assertTrue(blocked.plan(new Point(-20, 0), new Point(150, -450)).isEmpty());
+
+        var floors = CompanionNavigation.of(List.of(new Surface(1, -80, 0, 20, 0),
+                new Surface(2, 100, -450, 220, -450), new Surface(3, 10, -500, 180, -500)),
+                List.of(new Climb(1, 0, -1000, 0, true)));
+        var route = floors.plan(new Point(-20, 0), new Point(200, -450)).orElseThrow();
+        assertContinuous(route, new Point(-20, 0), new Point(200, -450));
+        assertTrue(route.stream().anyMatch(l -> l.fromFoothold() == 0 && l.toFoothold() == 3));
+        assertFalse(route.stream().anyMatch(l -> l.fromFoothold() == 0 && l.toFoothold() == 2),
+                "the rope exit cannot fall through the intervening floor");
+    }
+
+    @Test
+    void firstKpqMapDetachesForMiddleFloorsAndUsesTheShortRopeForTheUpperIsland() {
+        var navigation = CompanionNavigation.forMapId(103000800);
+        Point start = new Point(-437, 84);
+        Point middle = navigation.project(new Point(-200, -620), 20).orElseThrow().position();
+        var middleRoute = navigation.planFromClimb(start, middle).orElseThrow();
+        assertContinuous(middleRoute, start, middle);
+        assertTrue(middleRoute.stream().anyMatch(l -> l.kind() == Kind.JUMP && l.fromFoothold() == 0));
+        assertTrue(middleRoute.stream().filter(l -> l.kind() == Kind.CLIMB).allMatch(l -> l.to().y >= -1000),
+                "the middle floor is reachable without the rope's summit: " + middleRoute);
+        int oldClimbToSummitMillis = (int) ((84 + 1471) / 110.0 * 1000);
+        assertTrue(middleRoute.stream().mapToInt(Leg::durationMillis).sum() < oldClimbToSummitMillis,
+                "the entire middle-floor route should take less time than climbing to the old endpoint alone");
+        assertGroundedWalking(navigation, middleRoute);
+
+        // This isolated island needs the upper -902 floor via the short rope at
+        // x=-337. A lower-than-1000 exit would exceed the real jump envelope.
+        Point target = navigation.project(new Point(347, -672), 160).orElseThrow().position();
+        var route = navigation.planFromClimb(start, target).orElseThrow();
+        assertContinuous(route, start, target);
+        assertTrue(route.stream().anyMatch(l -> l.kind() == Kind.JUMP && l.fromFoothold() == 0));
+        assertTrue(route.stream().filter(l -> l.kind() == Kind.CLIMB).allMatch(l -> l.to().y >= -1350),
+                "the island route still should leave before the unnecessary -1471 summit: " + route);
+        assertGroundedWalking(navigation, route);
+    }
+
+    @Test
     void groundProjectionNeverMovesSidewaysOrSnapsAnAirborneStartOntoAPlatform() {
         var navigation = CompanionNavigation.of(List.of(new Surface(1, 0, 100, 100, 100)), List.of());
         assertTrue(navigation.groundBelow(new Point(101, 0), 500).isEmpty());
@@ -166,6 +226,57 @@ class CompanionNavigationTest {
         assertContinuous(summit, new Point(-542, 455), new Point(636, -595));
         assertTrue(summit.stream().filter(leg -> leg.kind() == Kind.CLIMB).count() >= 3);
         assertGroundedWalking(navigation, summit);
+    }
+
+    @Test
+    void canFinishMidRopeThenClimbDownOrMoveToAnotherRopeWithoutSnapping() {
+        var navigation = CompanionNavigation.of(List.of(new Surface(1, 0, 300, 400, 300),
+                new Surface(2, 0, 0, 400, 0)), List.of(new Climb(1, 100, 0, 300, true),
+                new Climb(2, 250, 0, 300, true)));
+        Point middle = new Point(100, 120);
+        var arrival = navigation.planToClimb(new Point(20, 300), middle, false).orElseThrow();
+        assertContinuous(arrival, new Point(20, 300), middle);
+        assertEquals(Kind.CLIMB, arrival.getLast().kind());
+        assertEquals(0, arrival.getLast().toFoothold());
+        var departure = navigation.planFromClimb(middle, new Point(350, 300)).orElseThrow();
+        assertContinuous(departure, middle, new Point(350, 300));
+        assertEquals(Kind.CLIMB, departure.getFirst().kind());
+        var nextRope = navigation.planToClimb(middle, new Point(250, 120), true).orElseThrow();
+        assertContinuous(nextRope, middle, new Point(250, 120));
+        assertTrue(navigation.planToClimb(new Point(20, 300), new Point(101, -5), false).isEmpty());
+        assertTrue(navigation.planFromClimb(new Point(110, 120), new Point(350, 300)).isEmpty());
+    }
+
+    @Test
+    void everyRealKpqRopeCanBeReachedHeldAndLeft() {
+        var navigation = CompanionNavigation.forMapId(103000801);
+        Point spawn = new Point(-1295, 102);
+        spawn = navigation.project(spawn, 400).orElseThrow().position();
+        for (Point target : List.of(new Point(-753, -23), new Point(-719, -257),
+                new Point(-584, -251), new Point(-481, -70))) {
+            var rope = navigation.climbs().stream().min(java.util.Comparator.comparingInt(c -> Math.abs(c.x() - target.x))).orElseThrow();
+            Point actual = new Point(rope.x(), target.y);
+            assertTrue(Math.abs(actual.x - target.x) <= 2);
+            var arrival = navigation.planToClimb(spawn, actual, false).orElseThrow(() -> new AssertionError("No route to " + actual));
+            assertContinuous(arrival, spawn, actual);
+            var departure = navigation.planFromClimb(actual, spawn).orElseThrow(() -> new AssertionError("No route from " + actual));
+            assertContinuous(departure, actual, spawn);
+        }
+    }
+
+    @Test
+    void knockbackUsesARealArcAndCannotPassThroughAnIntermediateFloorOrWall() {
+        var flat = CompanionNavigation.of(List.of(new Surface(1, -100, 100, 300, 100)), List.of());
+        Leg hit = flat.knockback(new Point(20, 100), 1).orElseThrow();
+        assertEquals(Kind.JUMP, hit.kind());
+        assertEquals(new Point(20, 100), hit.from());
+        assertEquals(100, hit.to().y);
+        assertTrue(hit.to().x > 70 && hit.to().x < 110);
+        assertTrue(hit.pointAt(hit.durationMillis() / 2).y < 80);
+        var wall = CompanionNavigation.of(List.of(new Surface(1, -100, 100, 300, 100),
+                new Surface(2, 40, -100, 40, 120)), List.of());
+        assertTrue(wall.knockback(new Point(20, 100), 1).isEmpty());
+        assertTrue(flat.knockback(new Point(20, -100), 1).isEmpty(), "cannot invent ground for an airborne hit");
     }
 
     private static void assertContinuous(List<Leg> route, Point from, Point to) {

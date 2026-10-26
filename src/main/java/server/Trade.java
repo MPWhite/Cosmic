@@ -448,6 +448,11 @@ public class Trade {
     }
 
     public static void inviteTrade(Character c1, Character c2) {
+        if (c1.isResidentBot() || c2.isResidentBot()) {
+            c1.message("This resident cannot trade. PQ passes are handed over on the ground.");
+            cancelTrade(c1, TradeResult.NO_RESPONSE);
+            return;
+        }
 
         if ((c1.isGM() && !c2.isGM()) && c1.gmLevel() < YamlConfig.config.server.MINIMUM_GM_LEVEL_TO_TRADE) {
             c1.message("You cannot trade with non-GM characters.");

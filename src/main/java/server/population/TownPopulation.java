@@ -28,6 +28,71 @@ import java.util.concurrent.RejectedExecutionException;
 
 /** Town actors have no login session and never count as players or control monsters. */
 public final class TownPopulation {
+    public record PartyReservation(ResidentProfiles.Profile profile, Point spawn, int worldId) {
+        public PartyReservation { spawn = new Point(spawn); }
+        @Override public Point spawn() { return new Point(spawn); }
+    }
+    private final Set<String> partyReservations = ConcurrentHashMap.newKeySet();
+
+    /** Promote existing identities, retaining their world claim while they are real party actors. */
+    public static List<PartyReservation> reservePartyMembers(Character host, int count) {
+        TownPopulation population = Holder.INSTANCE;
+        synchronized (population) {
+            long now = System.currentTimeMillis();
+            MapleMap map = host.getMap();
+            population.prepareScene(map, now);
+            ResidentWorld world = population.world(map, now);
+            int channel = host.getClient().getChannel();
+            var result = new ArrayList<PartyReservation>();
+            Scene scene = population.scenes.get(map);
+            if (scene != null) for (TownResident resident : List.copyOf(scene.residents)) {
+                var profile = resident.getProfile();
+                if (result.size() == count) break;
+                if (!partyEligible(profile) || population.journeys.values().stream().anyMatch(j -> j.resident == resident)) continue;
+                Point position = resident.getPosition();
+                population.retire(scene, resident, now);
+                var state = world.state(profile.id());
+                if (world.claim(profile.id(), state.mapId(), state.channel())) {
+                    world.moveClaim(profile.id(), map.getId(), channel);
+                    population.partyReservations.add(map.getWorld() + ":" + profile.id());
+                    result.add(new PartyReservation(profile, position, map.getWorld()));
+                }
+            }
+            // Background residents may arrive from the local region; never duplicate an active identity.
+            for (var profile : ResidentCatalog.all()) {
+                if (result.size() == count || population.routines.size() + population.partyReservations.size() >= MAX_ACTIVE) break;
+                if (!partyEligible(profile)) continue;
+                var state = world.state(profile.id());
+                if (state.claimed() || state.channel() != channel || state.mapId() / 1_000_000 != 103) continue;
+                if (!world.claim(profile.id(), state.mapId(), channel)) continue;
+                world.moveClaim(profile.id(), map.getId(), channel);
+                Point spawn = map.getPortal(0).getPosition();
+                population.partyReservations.add(map.getWorld() + ":" + profile.id());
+                result.add(new PartyReservation(profile, spawn, map.getWorld()));
+            }
+            if (result.size() != count) {
+                releasePartyMembers(result);
+                return List.of();
+            }
+            return List.copyOf(result);
+        }
+    }
+
+    private static boolean partyEligible(ResidentProfiles.Profile p) {
+        return p.level() >= 21 && p.level() <= 30 && p.job() >= 100 && p.job() < 500 && p.job() % 100 == 0;
+    }
+
+    public static void releasePartyMembers(List<PartyReservation> reservations) {
+        TownPopulation population = Holder.INSTANCE;
+        synchronized (population) {
+            for (var reservation : reservations) {
+                if (population.partyReservations.remove(reservation.worldId() + ":" + reservation.profile().id())) {
+                    ResidentWorld world = population.worlds.get(reservation.worldId());
+                    if (world != null) world.release(reservation.profile().id(), System.currentTimeMillis());
+                }
+            }
+        }
+    }
     public static final int HENESYS = 100000000;
     private static final Logger log = LoggerFactory.getLogger(TownPopulation.class);
     private static final boolean ENABLED = Boolean.parseBoolean(System.getProperty("cosmic.residents.enabled", "true"));
@@ -115,6 +180,7 @@ public final class TownPopulation {
     }
 
     public static void onEnter(Character player) {
+        if (player.isResidentBot()) return;
         if (!ENABLED) {
             return;
         }
@@ -177,7 +243,7 @@ public final class TownPopulation {
     }
 
     private void materialize(Scene scene, long now, boolean broadcast, int batch) {
-        if (!isPopulated(scene.map.getId()) || scene.residents.size() >= scene.limit || routines.size() >= MAX_ACTIVE) return;
+        if (!isPopulated(scene.map.getId()) || scene.residents.size() >= scene.limit || routines.size() + partyReservations.size() >= MAX_ACTIVE) return;
         ResidentWorld world = world(scene.map, now);
         int channel = scene.map.getChannelServer().getId();
         List<Point> anchors = scene.map.getAllPlayers().stream().sorted(Comparator.comparingInt(Character::getId))
@@ -188,7 +254,7 @@ public final class TownPopulation {
         List<ResidentWorld.Presence> candidates = world.candidates(scene.map.getId(), channel, now).stream()
                 .sorted(Comparator.comparingInt(p -> p.profile().id())).toList();
         for (ResidentWorld.Presence presence : candidates) {
-            if (scene.residents.size() >= scene.limit || routines.size() >= MAX_ACTIVE || added >= batch) break;
+            if (scene.residents.size() >= scene.limit || routines.size() + partyReservations.size() >= MAX_ACTIVE || added >= batch) break;
             var profile = presence.profile();
             if (!world.claim(profile.id(), scene.map.getId(), channel)) continue;
             TownResident resident = null;
@@ -250,6 +316,7 @@ public final class TownPopulation {
     }
 
     public static void onLeave(Character player) {
+        if (player.isResidentBot()) return;
         if (!ENABLED) {
             return;
         }
@@ -376,7 +443,7 @@ public final class TownPopulation {
         var performance = ResidentPopulationMetrics.snapshot();
         player.dropMessage(5, "World population: " + world.total() + " simulated identities; " + world.claimedCount()
                 + " fully active, " + (world.total() - world.claimedCount()) + " on background schedules.");
-        player.dropMessage(5, "Server active budget: " + population.routines.size() + "/" + MAX_ACTIVE
+        player.dropMessage(5, "Server active budget: " + (population.routines.size() + population.partyReservations.size()) + "/" + MAX_ACTIVE
                 + ". Resident tick p95: " + String.format(Locale.ROOT, "%.2f", performance.p95Millis()) + " ms.");
         Scene scene = population.scenes.get(player.getMap());
         if (scene == null || scene.residents.isEmpty()) {
@@ -396,6 +463,7 @@ public final class TownPopulation {
     }
 
     public static void onChat(Character player, String text) {
+        if (server.population.party.KpqPartyService.onChat(player, text, false)) return;
         if (!ENABLED || text.isBlank()) {
             return;
         }
@@ -426,6 +494,7 @@ public final class TownPopulation {
     }
 
     public static void talk(Character player, String name, String text, boolean echo) {
+        if (server.population.party.KpqPartyService.onChat(player, text, false)) return;
         if (!ENABLED) {
             player.dropMessage(5, "Town residents are disabled on this server.");
             return;
@@ -612,7 +681,31 @@ public final class TownPopulation {
         if (routine != null) {
             routine.conversation(now + 1800);
         }
-        resident.say(answer);
+        if (intent == ResidentDialogue.Intent.TALK || intent == ResidentDialogue.Intent.HELP
+                || server.population.knowledge.GameKnowledge.isQuestion(text)) {
+            Long visit = scene.visits.get(player.getId());
+            String observed = "Map: " + scene.map.getMapName() + ". Activity: "
+                    + (routine == null ? "standing nearby" : routine.context(walkingTogether).activity())
+                    + ". You are a server-run resident. Only discuss facts from the supplied game knowledge. "
+                    + "You have not joined a party or traded items through this conversation.";
+            server.population.intelligence.ResidentIntelligence.getInstance().reply(resident.getProfile(),
+                    server.population.knowledge.PlayerContext.snapshot(player), text, observed, answer)
+                    .thenAccept(response -> {
+                        var lines = server.population.intelligence.ResidentIntelligence.lines(response.text());
+                        for (int i = 0; i < lines.size(); i++) {
+                            String line = lines.get(i);
+                            schedule(() -> {
+                                if (scene.isCurrentVisit(player, visit) && scene.residents.contains(resident)
+                                        && player.getMap() == scene.map && resident.getMap() == scene.map
+                                        && nearby(resident, player) && !scene.map.isMuted()
+                                        && scene.lastReply.getOrDefault(player.getId(), 0L) == now) {
+                                    resident.say(line);
+                                    scene.lastSpeech = System.currentTimeMillis();
+                                }
+                            }, i * 1200L, TimeUnit.MILLISECONDS);
+                        }
+                    });
+        } else resident.say(answer);
         scene.lastSpeech = now;
     }
 

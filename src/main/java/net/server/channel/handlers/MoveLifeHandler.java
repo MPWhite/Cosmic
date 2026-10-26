@@ -77,12 +77,13 @@ public final class MoveLifeHandler extends AbstractMovementPacketHandler {
         short pOption = p.readShort();
         p.skip(8);
 
-        if (rawActivity >= 0) {
-            rawActivity = (byte) (rawActivity & 0xFF >> 1);
-        }
+        // The low wire bit is facing. Retain it for other clients, decode only for server decisions.
+        int activity = decodedActivity(rawActivity);
+        boolean isAttack = inRangeInclusive(activity, 12, 20);
+        boolean isSkill = inRangeInclusive(activity, 21, 29);
 
-        boolean isAttack = inRangeInclusive(rawActivity, 24, 41);
-        boolean isSkill = inRangeInclusive(rawActivity, 42, 59);
+        Boolean aggro = monster.aggroMoveLifeUpdate(player);
+        if (aggro == null) return; // Only the actual controller can spend monster MP or trigger attacks.
 
         int useSkillId = 0;
         int useSkillLevel = 0;
@@ -105,8 +106,8 @@ public final class MoveLifeHandler extends AbstractMovementPacketHandler {
                     }
                 }
             }
-        } else {
-            int castPos = (rawActivity - 24) / 2;
+        } else if (isAttack) {
+            int castPos = activity - 12;
             int atkStatus = monster.canUseAttack(castPos, isSkill);
             if (atkStatus < 1) {
                 rawActivity = -1;
@@ -141,11 +142,6 @@ public final class MoveLifeHandler extends AbstractMovementPacketHandler {
         Point startPos = new Point(start_x, start_y - 2);
         Point serverStartPos = new Point(monster.getPosition());
 
-        Boolean aggro = monster.aggroMoveLifeUpdate(player);
-        if (aggro == null) {
-            return;
-        }
-
         if (nextUse != null) {
             c.sendPacket(PacketCreator.moveMonsterResponse(objectid, moveid, mobMp, aggro, nextSkillId, nextSkillLevel));
         } else {
@@ -168,6 +164,9 @@ public final class MoveLifeHandler extends AbstractMovementPacketHandler {
             map.broadcastMessage(player, PacketCreator.moveMonster(objectid, nextMovementCouldBeSkill, rawActivity, useSkillId, useSkillLevel, pOption, startPos, p, movementDataLength), serverStartPos);
             //updatePosition(res, monster, -2); //does this need to be done after the packet is broadcast?
             map.moveMonster(monster, monster.getPosition());
+            if (rawActivity >= 24 && rawActivity <= 41) {
+                server.population.party.ResidentPartyActor.onMonsterAttack(monster, activity - 12);
+            }
         } catch (EmptyMovementException e) {
         }
 
@@ -178,7 +177,11 @@ public final class MoveLifeHandler extends AbstractMovementPacketHandler {
         }
     }
 
-    private static boolean inRangeInclusive(Byte pVal, Integer pMin, Integer pMax) {
-        return !(pVal < pMin) || (pVal > pMax);
+    static int decodedActivity(byte wire) {
+        return wire < 0 ? -1 : (wire & 0xff) >> 1;
+    }
+
+    static boolean inRangeInclusive(int value, int minimum, int maximum) {
+        return value >= minimum && value <= maximum;
     }
 }

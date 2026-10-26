@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
+# Optional local credentials/configuration for resident chat and Jev. This file is ignored by git.
+if [ -f .local/resident-ai.env ]; then
+    set -a
+    source .local/resident-ai.env
+    set +a
+fi
 if [ "$(uname -s)" = Darwin ]; then
     source ./macos/common.sh
     use_java21

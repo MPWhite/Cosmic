@@ -156,6 +156,7 @@ function action(mode, type, selection) {
 
                         var question = stage1Questions[data - 1];
                         cm.sendNext(question);
+                        Java.type('server.population.party.KpqPartyService').questionAsked(cm.getPlayer(), question);
                     } else {
                         var answer = stage1Answers[data - 1];
 
@@ -188,6 +189,7 @@ function action(mode, type, selection) {
                     eim.setProperty(stgProperty, c.toString());
                 } else {
                     var accept = rectangleStages(eim, stgProperty, stgCombos, stgAreas);
+                    Java.type('server.population.party.KpqPartyService').checked(eim, curMap, accept);
 
                     if (accept) {
                         clearStage(stage, eim, curMap);
@@ -215,6 +217,7 @@ function action(mode, type, selection) {
                     eim.setProperty(stgProperty, c.toString());
                 } else {
                     var accept = rectangleStages(eim, stgProperty, stgCombos, stgAreas);
+                    Java.type('server.population.party.KpqPartyService').checked(eim, curMap, accept);
 
                     if (accept) {
                         clearStage(stage, eim, curMap);
@@ -242,6 +245,7 @@ function action(mode, type, selection) {
                     eim.setProperty(stgProperty, c.toString());
                 } else {
                     var accept = rectangleStages(eim, stgProperty, stgCombos, stgAreas);
+                    Java.type('server.population.party.KpqPartyService').checked(eim, curMap, accept);
 
                     if (accept) {
                         clearStage(stage, eim, curMap);

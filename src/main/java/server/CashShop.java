@@ -76,6 +76,19 @@ public class CashShop {
     private final List<Integer> wishList = new ArrayList<>();
     private int notes = 0;
     private final Lock lock = new ReentrantLock();
+    private boolean residentOnly;
+
+    private CashShop(int characterId) {
+        this.accountId = 0;
+        this.characterId = characterId;
+        this.factory = ItemFactory.CASH_EXPLORER;
+        this.residentOnly = true;
+    }
+
+    /** Empty metadata for resident character inspection, with no account/database access. */
+    public static CashShop forResident(int characterId) {
+        return new CashShop(characterId);
+    }
 
     public CashShop(int accountId, int characterId, int jobType) throws SQLException {
         this.accountId = accountId;
@@ -481,6 +494,7 @@ public class CashShop {
     }
 
     public void save(Connection con) throws SQLException {
+        if (residentOnly) return;
         try (PreparedStatement ps = con.prepareStatement("UPDATE `accounts` SET `nxCredit` = ?, `maplePoint` = ?, `nxPrepaid` = ? WHERE `id` = ?")) {
             ps.setInt(1, nxCredit);
             ps.setInt(2, maplePoint);

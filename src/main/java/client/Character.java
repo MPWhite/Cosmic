@@ -346,6 +346,8 @@ public class Character extends AbstractCharacterObject {
     private final List<Ring> crushRings = new ArrayList<>();
     private final List<Ring> friendshipRings = new ArrayList<>();
     private boolean loggedIn = false;
+    // A resident party member has gameplay state but never owns an account or a socket.
+    private boolean residentBot;
     private boolean useCS;  //chaos scroll upon crafting item.
     private long npcCd;
     private int newWarpMap = -1;
@@ -514,6 +516,137 @@ public class Character extends AbstractCharacterObject {
 
     public boolean isLoggedinWorld() {
         return this.isLoggedin() && !this.isAwayFromWorld();
+    }
+
+    public boolean isResidentBot() {
+        return residentBot;
+    }
+
+    /** Creates an ephemeral first-job character; registration and map membership are explicit. */
+    public static Character createResidentBot(Client c, int networkId,
+            server.population.ResidentProfiles.Profile profile, MapleMap map, Point position) {
+        if (networkId < 1_600_000_000 || networkId >= 1_700_000_000 || profile.level() < 21 || profile.level() > 30
+                || !Set.of(100, 200, 300, 400, 500).contains(profile.job())) {
+            throw new IllegalArgumentException("KPQ residents require a reserved ID and a level 21–30 first job");
+        }
+        Character ret = getDefault(c);
+        ret.residentBot = true;
+        ret.id = networkId;
+        ret.name = profile.name();
+        ret.gender = profile.gender();
+        ret.skinColor = SkinColor.getById(profile.skin());
+        ret.face = profile.face();
+        ret.hair = profile.hair();
+        ret.job = Job.getById(profile.job());
+        ret.level = profile.level();
+        ret.world = c.getWorld();
+        ret.accountid = 0;
+        ret.map = map;
+        ret.mapid = map.getId();
+        ret.setPosition(new Point(position));
+        ret.setStance(4);
+        ret.canRecvPartySearchInvite = false;
+        ret.blockCashShop = true;
+        ret.buddylist = new BuddyList(0);
+        ret.monsterbook = new MonsterBook();
+        ret.cashshop = CashShop.forResident(networkId);
+        ret.autoban = new AutobanManager(ret);
+        ret.lastmonthfameids = new ArrayList<>();
+        ret.mgc = new GuildCharacter(ret);
+        ret.loginTime = System.currentTimeMillis();
+        ret.lastExpGainTime = ret.loginTime;
+        int totalStats = 25 + 5 * (ret.level - 1);
+        ret.str = ret.dex = ret.int_ = ret.luk = 4;
+        switch (profile.job()) {
+            case 100 -> {
+                ret.dex = 30;
+                ret.str = totalStats - ret.dex - 8;
+                ret.maxhp = 50 + 9 * 13 + 200 + (ret.level - 10) * 30;
+                ret.maxmp = 5 + 9 * 11 + (ret.level - 10) * 5;
+            }
+            case 200 -> {
+                ret.luk = ret.level + 3;
+                ret.int_ = totalStats - ret.luk - 8;
+                ret.maxhp = 50 + 6 * 13 + (ret.level - 7) * 12;
+                ret.maxmp = 5 + 6 * 11 + 100 + (ret.level - 7) * 30;
+            }
+            case 300 -> {
+                ret.str = ret.level + 5;
+                ret.dex = totalStats - ret.str - 8;
+                ret.maxhp = 50 + 9 * 13 + (ret.level - 10) * 22;
+                ret.maxmp = 5 + 9 * 11 + (ret.level - 10) * 15;
+            }
+            case 400 -> {
+                ret.dex = ret.level * 2;
+                ret.luk = totalStats - ret.dex - 8;
+                ret.maxhp = 50 + 9 * 13 + (ret.level - 10) * 22;
+                ret.maxmp = 5 + 9 * 11 + (ret.level - 10) * 15;
+            }
+            case 500 -> {
+                ret.dex = ret.level;
+                ret.str = totalStats - ret.dex - 8;
+                ret.maxhp = 50 + 9 * 13 + (ret.level - 10) * 25;
+                ret.maxmp = 5 + 9 * 11 + (ret.level - 10) * 20;
+            }
+        }
+        ret.hp = ret.maxhp;
+        ret.mp = ret.maxmp;
+        ItemInformationProvider items = ItemInformationProvider.getInstance();
+        int preparedWeapon = server.population.party.ResidentPartyEquipment.weaponFor(ret, profile.equipment().getOrDefault(11, 0));
+        profile.equipment().forEach((slot, itemId) -> {
+            Item item = items.getEquipById(slot == 11 ? preparedWeapon : itemId);
+            item.setPosition((short) -slot.intValue());
+            ret.getInventory(InventoryType.EQUIPPED).addItemFromDB(item);
+        });
+        ret.getInventory(InventoryType.USE).addItemFromDB(new Item(2000002, (short) 1, (short) 60));
+        ret.getInventory(InventoryType.USE).addItemFromDB(new Item(2000003, (short) 2, (short) 60));
+        int weapon = preparedWeapon / 10000;
+        if (weapon == 145 || weapon == 146 || weapon == 147 || weapon == 149) {
+            int ammunition = weapon == 145 ? 2060000 : weapon == 146 ? 2061000 : weapon == 147 ? 2070000 : 2330000;
+            ret.getInventory(InventoryType.USE).addItemFromDB(new Item(ammunition, (short) 3, (short) 1000));
+        }
+        int attackSkill = switch (profile.job()) {
+            case 100 -> 1001004;
+            case 200 -> 2001005;
+            case 300 -> 3001005;
+            case 400 -> weapon == 147 ? 4001344 : 4001334;
+            case 500 -> weapon == 149 ? 5001003 : 5001001;
+            default -> throw new IllegalArgumentException("Unsupported job");
+        };
+        ret.changeSkillLevel(SkillFactory.getSkill(attackSkill), (byte) 20, 0, -1);
+        if (profile.job() == 200) {
+            ret.changeSkillLevel(SkillFactory.getSkill(2001004), (byte) 1, 0, -1);
+            ret.changeSkillLevel(SkillFactory.getSkill(2000000), (byte) 5, 0, -1);
+            ret.changeSkillLevel(SkillFactory.getSkill(2000001), (byte) 10, 0, -1);
+        } else if (profile.job() == 300) {
+            ret.changeSkillLevel(SkillFactory.getSkill(3001004), (byte) 1, 0, -1);
+            ret.changeSkillLevel(SkillFactory.getSkill(3000000), (byte) 3, 0, -1);
+            ret.changeSkillLevel(SkillFactory.getSkill(3000002), (byte) 8, 0, -1);
+        }
+        ret.equipchanged = true;
+        ret.recalcLocalStats();
+        ret.hp = ret.localmaxhp;
+        ret.mp = ret.localmaxmp;
+        ret.loggedIn = true;
+        ret.awayFromWorld.set(false);
+        ret.mapTransitioning.set(false);
+        c.setPlayer(ret);
+        return ret;
+    }
+
+    /** Stops ephemeral gameplay without the delayed account/session cleanup used by real clients. */
+    public void disposeResidentBot() {
+        if (!residentBot) throw new IllegalStateException("Not a resident party member");
+        loggedIn = false;
+        awayFromWorld.set(true);
+        try {
+            empty(false);
+        } finally {
+            setParty(null);
+            setMPC(null);
+            eventInstance = null;
+            visibleMapObjects.clear();
+        }
     }
 
     public boolean isAwayFromWorld() {
@@ -972,7 +1105,8 @@ public class Character extends AbstractCharacterObject {
     }
 
     private void cancelPlayerBuffs(List<BuffStat> buffstats) {
-        if (client.getChannelServer().getPlayerStorage().getCharacterById(getId()) != null) {
+        if (client.getChannelServer().getPlayerStorage().getCharacterById(getId()) != null
+                || server.population.party.ResidentPartyCharacter.isActive(this)) {
             updateLocalStats();
             sendPacket(PacketCreator.cancelBuff(buffstats));
             if (buffstats.size() > 0) {
@@ -1758,7 +1892,8 @@ public class Character extends AbstractCharacterObject {
 
         sendPacket(warpPacket);
         map.removePlayer(this);
-        if (client.getChannelServer().getPlayerStorage().getCharacterById(getId()) != null) {
+        if (client.getChannelServer().getPlayerStorage().getCharacterById(getId()) != null
+                || server.population.party.ResidentPartyCharacter.isActive(this)) {
             map = to;
             setPosition(pos);
             map.addPlayer(this);
@@ -1803,6 +1938,7 @@ public class Character extends AbstractCharacterObject {
             // if this map has obstacle components moving, make it do so for this client
             sendPacket(PacketCreator.environmentMoveList(map.getEnvironment().entrySet()));
         }
+        if (residentBot) setMapTransitionComplete();
     }
 
     public boolean isChangingMaps() {
@@ -3176,7 +3312,7 @@ public class Character extends AbstractCharacterObject {
             } else {
                 lastExpGainTime = System.currentTimeMillis();
 
-                if (YamlConfig.config.server.USE_EXP_GAIN_LOG) {
+                if (!residentBot && YamlConfig.config.server.USE_EXP_GAIN_LOG) {
                     ExpLogRecord expLogRecord = new ExpLogger.ExpLogRecord(
                         getWorldServer().getExpRate(),
                         expCoupon,
@@ -8132,6 +8268,7 @@ public class Character extends AbstractCharacterObject {
     }
 
     public synchronized void saveCooldowns() {
+        if (residentBot) return;
         List<PlayerCoolDownValueHolder> listcd = getAllCooldowns();
 
         if (!listcd.isEmpty()) {
@@ -8371,6 +8508,7 @@ public class Character extends AbstractCharacterObject {
     }
 
     public void saveCharToDB() {
+        if (residentBot) return;
         if (YamlConfig.config.server.USE_AUTOSAVE) {
             Runnable r = new Runnable() {
                 @Override
@@ -8388,6 +8526,7 @@ public class Character extends AbstractCharacterObject {
 
     //ItemFactory saveItems and monsterbook.saveCards are the most time consuming here.
     public synchronized boolean saveCharToDB(boolean notAutosave) {
+        if (residentBot) return false;
         if (!loggedIn) {
             return false;
         }
@@ -10322,6 +10461,8 @@ public class Character extends AbstractCharacterObject {
 
     public void logOff() {
         this.loggedIn = false;
+
+        if (residentBot) return;
 
         try (Connection con = DatabaseConnection.getConnection();
              PreparedStatement ps = con.prepareStatement("UPDATE characters SET lastLogoutTime=? WHERE id=?")) {

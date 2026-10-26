@@ -344,6 +344,7 @@ public class CommandsExecutor {
         addCommand(new String[]{"help", "commands"}, HelpCommand.class);
         addCommand(new String[]{"rebirth", "reborn"}, RebirthCommand.class);
         addCommand("residents", client.command.commands.gm0.ResidentsCommand.class);
+        addCommand("kpq", client.command.commands.gm0.KpqCommand.class);
         addCommand("companion", client.command.commands.gm0.CompanionCommand.class);
         addCommand("talk", client.command.commands.gm0.TalkCommand.class);
         addCommand("droplimit", DropLimitCommand.class);

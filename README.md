@@ -99,9 +99,10 @@ after a companion offers to come accepts the offer. `hold up` pauses a companion
 and asking an independent hunter `cc pls` gives you two minutes of hunting space
 without claiming to switch channels. Actual features are still listed in
 `@residents`; ordinary dialogue stays short.
-They cannot trade, accept party invites, complete quests, or use boss mechanics.
-Scripted, closed, and event portals are excluded. Residents do not occupy player
-slots or control monsters. Up to **256 actors per server process** run full
+Ordinary roaming residents cannot trade or join arbitrary quests. Recruiting a
+KPQ party promotes three eligible identities to temporary party characters, as
+described below. Other scripted, closed, and event portals remain excluded.
+Roaming residents do not occupy player slots or control monsters. Up to **256 actors per server process** run full
 movement and behavior, with **48 per town and 16 per field**, including the
 original residents and traveling companions. A distinct identity cannot appear
 in two maps or channels at once. Empty scenes release actors after 20 seconds,
@@ -117,6 +118,63 @@ in place until normal travel or retirement, rather than following clock-based
 teleports. This is 2,500 scheduled identities, not 2,500 simultaneous full actors.
 Following resumes by request after a server restart; identities and conversation
 memories persist, while private collections and combat health are session state.
+
+### Autonomous Kerning PQ parties
+
+In Kerning, a level 21–30 character can say `anyone wanna KPQ?` to recruit three
+eligible residents. One volunteers to lead; meet them at Lakelis and play your
+normal part. Say `lfm kpq` to lead yourself. The normal party window and leader
+transfer work. `@kpq join`, `@kpq lead`, `@kpq status`, and `@kpq leave` are also
+available, but no bot instructions are required during the run.
+
+Bots talk to the real NPC scripts, collect and exchange actual coupons, drop
+passes for the leader, occupy the ropes/platforms/barrels, fight with finite
+potions and ammunition, and use normal portals. A human leader performs the
+usual NPC checks and collects dropped passes. With a bot leader, the human
+solves their own coupon question and takes one puzzle position while the other
+members adjust around them. The combination notebook records only visible
+failed checks; it cannot read the random winning answer. Level requirements,
+timer, puzzle occupancy, monsters, drops, rewards, and bonus entry remain the
+existing KPQ scripts' responsibility.
+
+Before joining, residents prepare an unscrolled, noncash weapon in their existing
+weapon category. The selected WZ tier must satisfy their actual level, job,
+STR, DEX, INT, LUK, and fame requirements; all-class weapons are eligible too.
+For example, a level-24 LUK thief can bring a Stinger, while an Iron Dagger still
+requires its listed STR. Preparation preserves their AP, HP, identity, and other
+appearance, and inspection and combat both use the actual equipped weapon.
+
+These party characters exist in memory only. They hold their original world
+identity claim, occupy real map/party/event slots, and use the normal combat and
+inventory paths. They have no account login, saved character row, cash balance,
+or trading permission. At most eight resident parties run at once. Leaving,
+disconnecting, timeout, or disbanding releases the party and identities. Normal
+roaming behavior remains lightweight for the rest of the population.
+
+The browser setup also includes King Slime's WZ attack animation, hit area,
+impact timing, effects, and grounded jump-dodge check. Its attack selection uses
+a 5–8.5-second interval after engagement. The normal quest countdown and stage
+sounds are rendered, including timer removal on exit. Resident damage uses a bounded
+stat/weapon calculation; reproducing every original client combat formula and
+human habit is not an established claim of this implementation.
+
+### Game questions and optional AI
+
+Ask a nearby resident questions such as `Mia, what level for KPQ?`, `what drops
+slime bubble?`, `where should I train?`, or `how do I get second job?`. During
+KPQ, party chat can answer `how do we do this stage?`. Supported facts come from
+this server's quest scripts, WZ data, and drop database, with short follow-ups
+and clarification when names are ambiguous. Unsupported questions get an honest
+fallback. Factual answers work without model credentials.
+
+Optional Jev decisions and generated social chat run asynchronously, with
+bounded context, timeouts, rate limits, and a shared spending ceiling. They
+cannot grant items, move players, reveal hidden answers, or clear stages. Copy
+the [configuration example](macos/resident-ai.env.example) to the ignored
+`.local/resident-ai.env` and follow the [provider setup guide](macos/RESIDENT_AI.md).
+Empty keys disable paid calls. The launcher reads the private file on startup.
+
+### Population tuning and measurements
 
 `-Dcosmic.residents.population=2500` configures 28–10,000 stable identities;
 changing the count preserves the existing identity prefix.
